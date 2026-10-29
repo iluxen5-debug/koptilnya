@@ -26,8 +26,8 @@ body{font:15px/1.4 var(--body);padding-left:max(16px,env(safe-area-inset-left,0p
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
 header{position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);z-index:5;padding-block:12px 8px;display:grid;gap:10px}
 h1{font:22px/1.1 var(--display);margin:0;letter-spacing:.02em}
-.tabs{display:flex;gap:6px;overflow-x:auto}
-.tabs button{flex:1;white-space:nowrap}
+.tabs{display:flex;gap:4px;overflow-x:auto}
+.tabs button{flex:1;white-space:nowrap;padding-inline:4px;font-size:13px}
 button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:10px;padding:9px 12px;cursor:pointer;min-height:42px}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
@@ -79,6 +79,7 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
     <button data-tab="pack" aria-pressed="false">Собрать</button>
     <button data-tab="money" aria-pressed="false">Деньги</button>
     <button data-tab="archive" aria-pressed="false">Готово</button>
+    <button data-tab="catalog" aria-pressed="false">Каталог</button>
   </nav>
 </header>
 <div id="banner" class="banner" hidden></div>
@@ -109,13 +110,6 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
     <div class="muted">Заказы хранятся только в этом телефоне. Раз в неделю сохраняйте резервную копию, чтобы не потерять их при очистке браузера.</div>
     <button type="button" id="s-export">Скачать резервную копию</button>
     <label>Загрузить из копии<input id="s-import" type="file" accept=".json,application/json"></label>
-    <details><summary>Каталог и цены</summary>
-      <div style="display:grid;gap:8px;margin-top:8px">
-        <div class="muted">Одна строка — один товар: Название; цена; ед. Ед: кг, шт или уп. Цена с «кг» считается по весу.</div>
-        <textarea id="c-text" rows="12" spellcheck="false"></textarea>
-        <button type="button" id="c-save">Сохранить каталог</button>
-      </div>
-    </details>
     <details><summary>Передать настройки клиенту</summary>
       <div style="display:grid;gap:8px;margin-top:8px">
         <div class="muted">Ключ, адрес API, модель и каталог упакуются в ссылку и зашифруются логином и паролем. Ссылку и пароль отправьте клиенту лично.</div>
@@ -284,6 +278,17 @@ function render(){
     </div>
     <div class="day">Должны оплатить · ${rub(debt.reduce((a,o)=>a+total(o),0))}</div>
     <div class="list">${debt.length?debt.map(card).join(''):'<div class="empty">Долгов нет.</div>'}</div>`;
+  }else if(tab==='catalog'){
+    v.innerHTML=`<div class="card" style="margin-top:6px">
+      <div class="muted">Одна строка — один товар: Название; цена; ед. Ед: кг, шт или уп. Цена за «кг» считается по фактическому весу.</div>
+      <textarea id="c-text" rows="18" spellcheck="false" aria-label="Каталог">${esc(catalogText())}</textarea>
+      <button class="primary" type="button" id="c-save">Сохранить каталог</button>
+      <div id="c-msg" class="muted" role="status"></div></div>`;
+    $('#c-save').onclick=()=>{
+      const text=$('#c-text').value.trim();
+      try{localStorage.setItem(CATALOG_KEY,text)}catch{}
+      catalog=parseCatalog(text);$('#c-msg').textContent='Сохранено: '+catalog.length+' товаров. Цены применятся к новым заказам.';
+    };
   }else{
     v.innerHTML='<div class="list">'+(done.length?done.slice(0,100).map(card).join(''):'<div class="empty">Доставленные заказы появятся здесь.</div>')+'</div>';
   }
@@ -475,12 +480,7 @@ async function askClaude(prompt,imgs){
 // --- settings: API key and backup ---
 $('#set').onclick=()=>{$('#s-key').value=getKey();$('#s-url').value=ls('smokehouse-url',DEF_URL);$('#s-model').value=ls('smokehouse-model',DEF_MODEL);$('#s-msg').textContent='';$('#setDlg').showModal()};
 $('#setClose').onclick=()=>$('#setDlg').close();
-$('#c-text').value=catalogText();
-$('#c-save').onclick=()=>{
-  const text=$('#c-text').value.trim();
-  try{localStorage.setItem(CATALOG_KEY,text)}catch{}
-  catalog=parseCatalog(text);$('#s-msg').textContent='Каталог сохранён: '+catalog.length+' товаров. Цены применятся к новым заказам.';
-};
+
 $('#s-save').onclick=()=>{try{localStorage.setItem(APIKEY,$('#s-key').value.trim());localStorage.setItem('smokehouse-url',$('#s-url').value.trim()||DEF_URL);localStorage.setItem('smokehouse-model',$('#s-model').value.trim()||DEF_MODEL);$('#s-msg').textContent='Сохранено.'}catch{$('#s-msg').textContent='Не удалось сохранить ключ.'}};
 $('#s-export').onclick=()=>{
   const a=document.createElement('a');
@@ -533,7 +533,7 @@ if(cfgHash){
     try{
       const c=await unseal(cfgHash[1],$('#l-login').value,$('#l-pass').value);
       localStorage.setItem(APIKEY,c.key);localStorage.setItem('smokehouse-url',c.url||DEF_URL);localStorage.setItem('smokehouse-model',c.model||DEF_MODEL);
-      if(c.catalog){localStorage.setItem(CATALOG_KEY,c.catalog);catalog=parseCatalog(c.catalog);$('#c-text').value=c.catalog}
+      if(c.catalog){localStorage.setItem(CATALOG_KEY,c.catalog);catalog=parseCatalog(c.catalog);render()}
       history.replaceState(null,'',location.pathname);$('#loginDlg').close();
       $('#banner').hidden=false;$('#banner').textContent='Готово: настройки сохранены в этом телефоне. Добавьте страницу на главный экран.';
     }catch{$('#l-msg').textContent='Неверный логин или пароль.'}
