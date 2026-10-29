@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Коптильня: заказы</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Russo+One&family=Rubik:wght@400;500;600&display=swap">
+<style>
+/* Layout: one phone column, sticky tab bar on top, order cards stacked, bottom sheet form */
+:root{
+  --bg:#eef0ee; --card:#ffffff; --fg:#1d2321; --muted:#5f6b67; --line:#d6dbd8;
+  --accent:#8a4b12; --accent-fg:#fff; --ok:#2f7a4a; --warn:#b03a2e; --chip:#e4e8e5;
+  --display:"Russo One",system-ui,sans-serif; --body:"Rubik",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141917; --card:#1e2522; --fg:#e8ece9; --muted:#9aa6a1; --line:#2f3834;
+  --accent:#e0a050; --accent-fg:#1a1205; --ok:#6cc58f; --warn:#f08a7e; --chip:#28302d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141917; --card:#1e2522; --fg:#e8ece9; --muted:#9aa6a1; --line:#2f3834;
+  --accent:#e0a050; --accent-fg:#1a1205; --ok:#6cc58f; --warn:#f08a7e; --chip:#28302d; color-scheme:dark}
+[hidden]{display:none!important}
+html,body{background:var(--bg);color:var(--fg)}
+body{font:15px/1.4 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 96px;max-width:640px;margin:0 auto;font-variant-numeric:tabular-nums}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+header{position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);z-index:5;padding-block:12px 8px;display:grid;gap:10px}
+h1{font:22px/1.1 var(--display);margin:0;letter-spacing:.02em}
+.tabs{display:flex;gap:6px;overflow-x:auto}
+.tabs button{flex:1;white-space:nowrap}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:10px;padding:9px 12px;cursor:pointer;min-height:42px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+.list{display:grid;gap:10px;margin-top:6px}
+.day{font:13px var(--display);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:grid;gap:8px}
+.card.done{opacity:.7}
+.row{display:flex;gap:8px;align-items:baseline;justify-content:space-between;flex-wrap:wrap}
+.name{font-weight:600;font-size:16px}
+.sum{font-weight:600;white-space:nowrap}
+.addr{color:var(--fg);text-decoration:none;border-bottom:1px dashed var(--muted);overflow-wrap:anywhere}
+.muted{color:var(--muted);font-size:13px}
+.items{margin:0;padding:0;list-style:none;display:grid;gap:2px}
+.items li{display:flex;justify-content:space-between;gap:8px}
+.chip{font-size:12px;padding:2px 8px;border-radius:99px;background:var(--chip);white-space:nowrap}
+.chip.unpaid{color:var(--warn);font-weight:600}
+.chip.paid{color:var(--ok);font-weight:600}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+.actions button{flex:1}
+.empty{padding:28px 8px;text-align:center;color:var(--muted)}
+.fab{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:6;border-radius:99px;padding:14px 20px;box-shadow:0 6px 20px rgb(0 0 0/.25)}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:6px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+.stat b{display:block;font:22px var(--display);margin-top:4px}
+table{width:100%;border-collapse:collapse}
+td{padding:8px 4px;border-bottom:1px solid var(--line)}
+td:last-child{text-align:right;font-weight:600;white-space:nowrap}
+dialog{border:none;border-radius:16px;padding:0;width:min(560px,calc(100vw - 24px));background:var(--card);color:var(--fg)}
+dialog::backdrop{background:rgb(0 0 0/.45)}
+form{display:grid;gap:10px;padding:16px}
+label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 10px;width:100%;box-sizing:border-box;min-width:0}
+.item-row{display:grid;grid-template-columns:minmax(0,1fr) 64px 58px 84px 36px;gap:6px;align-items:center}
+.item-row button{min-height:36px;padding:0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.banner{background:var(--chip);border-radius:10px;padding:10px 12px;font-size:13px}
+@media (prefers-reduced-motion:no-preference){.card{transition:opacity .2s}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="row"><h1>Коптильня · заказы</h1><span class="muted" id="sync"></span><button id="set" aria-label="Настройки" style="min-height:36px;padding:4px 10px">⚙</button></div>
+  <nav class="tabs" aria-label="Разделы">
+    <button data-tab="orders" aria-pressed="true">Развоз</button>
+    <button data-tab="pack" aria-pressed="false">Собрать</button>
+    <button data-tab="money" aria-pressed="false">Деньги</button>
+    <button data-tab="archive" aria-pressed="false">Готово</button>
+  </nav>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main id="view"></main>
+<div class="fab" style="display:flex;gap:8px;box-shadow:none;padding:0">
+  <button id="imp" style="border-radius:99px;padding:14px 18px;box-shadow:0 6px 20px rgb(0 0 0/.25)">Из чата</button>
+  <button class="primary" id="add" style="border-radius:99px;padding:14px 20px;box-shadow:0 6px 20px rgb(0 0 0/.25)">+ Заказ</button>
+</div>
+
+<dialog id="setDlg">
+  <form method="dialog" onsubmit="return false">
+    <div class="row"><b style="font:18px var(--display)">Настройки</b><button type="button" id="setClose" aria-label="Закрыть">✕</button></div>
+    <label>Ключ Anthropic API (для разбора заявок из чата)<input id="s-key" type="password" autocomplete="off" placeholder="sk-ant-…"></label>
+    <button class="primary" type="button" id="s-save">Сохранить ключ</button>
+    <div class="muted">Заказы хранятся только в этом телефоне. Раз в неделю сохраняйте резервную копию, чтобы не потерять их при очистке браузера.</div>
+    <button type="button" id="s-export">Скачать резервную копию</button>
+    <label>Загрузить из копии<input id="s-import" type="file" accept=".json,application/json"></label>
+    <div id="s-msg" class="muted" role="status"></div>
+  </form>
+</dialog>
+
+<dialog id="impDlg">
+  <form id="impForm" method="dialog">
+    <div class="row"><b style="font:18px var(--display)">Заявки из чата</b><button type="button" id="impClose" aria-label="Закрыть">✕</button></div>
+    <label>Скопируйте сообщения из чата MAX и вставьте сюда (можно сразу много)
+      <textarea id="impText" rows="8" placeholder="Ирина: Мне 2 скумбрии и сало грамм 500, Ленина 5-12, в субботу"></textarea></label>
+    <label>Или скриншоты чата<input type="file" id="impImg" accept="image/*" multiple></label>
+    <button class="primary" type="submit" id="impGo">Разобрать</button>
+    <div id="impOut" class="list"></div>
+    <button class="primary" type="button" id="impSave" hidden>Добавить отмеченные</button>
+  </form>
+</dialog>
+
+<dialog id="dlg">
+  <form id="form" method="dialog">
+    <div class="row"><b id="formTitle" style="font:18px var(--display)">Новый заказ</b><button type="button" id="close" aria-label="Закрыть">✕</button></div>
+    <label>Вставьте сообщение из чата (необязательно)
+      <textarea id="f-raw" rows="2" placeholder="Скумбрия 2 шт, сало 0.5 кг, Ленина 5, кв 12"></textarea></label>
+    <div class="two">
+      <label>Клиент<input id="f-name" required autocomplete="off"></label>
+      <label>Телефон<input id="f-phone" type="tel" autocomplete="off"></label>
+    </div>
+    <label>Адрес<input id="f-addr" autocomplete="off"></label>
+    <div class="two">
+      <label>Дата доставки<input id="f-date" type="date" required></label>
+      <label>Оплата<select id="f-paid"><option value="0">Не оплачен</option><option value="1">Оплачен</option></select></label>
+    </div>
+    <div class="muted">Товары: название, количество, ед., сумма ₽</div>
+    <datalist id="products"></datalist>
+    <div id="items" style="display:grid;gap:6px"></div>
+    <button type="button" id="addItem">+ товар</button>
+    <div class="row"><span>Итого</span><b id="f-total">0 ₽</b></div>
+    <label>Комментарий<input id="f-note" autocomplete="off"></label>
+    <div class="actions">
+      <button type="button" id="del" hidden>Удалить</button>
+      <button class="primary" type="submit">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const $=s=>document.querySelector(s);
+const rub=n=>Math.round(n||0).toLocaleString('ru-RU')+' ₽';
+const today=()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)};
+const fmtDay=s=>{if(s===today())return'Сегодня';const d=new Date(s+'T12:00');return d.toLocaleDateString('ru-RU',{weekday:'short',day:'numeric',month:'long'})};
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const total=o=>(o.items||[]).reduce((a,i)=>a+(+i.sum||0),0);
+
+let orders=[], tab='orders', editing=null;
+
+// Packing list: same product + unit summed across all open orders
+function packList(list){
+  const m=new Map();
+  for(const o of list)for(const i of o.items||[]){
+    const k=(i.name||'').trim().toLowerCase()+'|'+i.unit;
+    const e=m.get(k)||{name:(i.name||'').trim(),unit:i.unit,qty:0};
+    e.qty+=+i.qty||0;m.set(k,e);
+  }
+  return [...m.values()].sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+}
+console.assert(JSON.stringify(packList([{items:[{name:'Сало',unit:'кг',qty:0.5},{name:'сало ',unit:'кг',qty:1}]},{items:[{name:'Сало',unit:'шт',qty:2}]}]))===JSON.stringify([{name:'Сало',unit:'кг',qty:1.5},{name:'Сало',unit:'шт',qty:2}]),'packList');
+
+function card(o){
+  const t=total(o), map='https://yandex.ru/maps/?text='+encodeURIComponent(o.address||'');
+  return `<article class="card ${o.status==='done'?'done':''}">
+    <div class="row"><span class="name">${esc(o.name)}</span><span class="sum">${rub(t)}</span></div>
+    ${o.address?`<a class="addr" href="${map}" target="_blank" rel="noopener">📍 ${esc(o.address)}</a>`:''}
+    ${o.phone?`<span class="muted">☎ <span style="user-select:all">${esc(o.phone)}</span></span>`:''}
+    <ul class="items">${(o.items||[]).map(i=>`<li><span>${esc(i.name)}</span><span>${+i.qty||''} ${esc(i.unit)}</span></li>`).join('')}</ul>
+    ${o.note?`<span class="muted">${esc(o.note)}</span>`:''}
+    <div class="row"><span class="chip ${o.paid?'paid':'unpaid'}">${o.paid?'оплачен':'не оплачен'}</span>${o.status==='done'?`<span class="chip">доставлен ${o.doneAt?new Date(o.doneAt).toLocaleDateString('ru-RU'):''}</span>`:''}</div>
+    <div class="actions">
+      <button data-act="edit" data-id="${o.id}">Изменить</button>
+      <button data-act="paid" data-id="${o.id}">${o.paid?'Снять оплату':'Оплачен'}</button>
+      ${o.status==='done'?`<button data-act="undo" data-id="${o.id}">Вернуть</button>`:`<button class="primary" data-act="done" data-id="${o.id}">Доставлен ✓</button>`}
+    </div></article>`;
+}
+
+function render(){
+  document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tab===tab));
+  const open=orders.filter(o=>o.status!=='done').sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  const done=orders.filter(o=>o.status==='done').sort((a,b)=>(b.doneAt||0)-(a.doneAt||0));
+  const v=$('#view');
+  if(tab==='orders'){
+    if(!open.length){v.innerHTML='<div class="empty">Активных заказов нет.<br>Нажмите «+ Заказ», когда в чате появится новая заявка.</div>';return}
+    let html='',day=null;
+    for(const o of open){if(o.date!==day){day=o.date;const n=open.filter(x=>x.date===day);html+=`<div class="day">${fmtDay(day)} · ${n.length} адр. · ${rub(n.reduce((a,x)=>a+total(x),0))}</div>`}html+=card(o)}
+    v.innerHTML='<div class="list">'+html+'</div>';
+  }else if(tab==='pack'){
+    const days=[...new Set(open.map(o=>o.date))];
+    if(!days.length){v.innerHTML='<div class="empty">Собирать нечего: открытых заказов нет.</div>';return}
+    v.innerHTML=days.map(d=>{const l=packList(open.filter(o=>o.date===d));
+      return `<div class="day">${fmtDay(d)}</div><div class="card"><table>${l.map(e=>`<tr><td>${esc(e.name)}</td><td>${+e.qty.toFixed(3)} ${esc(e.unit)}</td></tr>`).join('')}</table></div>`}).join('');
+  }else if(tab==='money'){
+    const now=new Date(), ym=today().slice(0,7), wk=new Date(now-6*864e5).setHours(0,0,0,0);
+    const sum=f=>orders.filter(f).reduce((a,o)=>a+total(o),0);
+    const debt=orders.filter(o=>o.status==='done'&&!o.paid);
+    v.innerHTML=`<div class="stats">
+      <div class="stat"><span class="muted">Доставлено сегодня</span><b>${rub(sum(o=>o.status==='done'&&new Date(o.doneAt).toDateString()===now.toDateString()))}</b></div>
+      <div class="stat"><span class="muted">За 7 дней</span><b>${rub(sum(o=>o.status==='done'&&o.doneAt>=wk))}</b></div>
+      <div class="stat"><span class="muted">За месяц</span><b>${rub(sum(o=>o.status==='done'&&new Date(o.doneAt).toISOString().slice(0,7)===ym))}</b></div>
+      <div class="stat"><span class="muted">В работе (ещё не доставлено)</span><b>${rub(sum(o=>o.status!=='done'))}</b></div>
+    </div>
+    <div class="day">Должны оплатить · ${rub(debt.reduce((a,o)=>a+total(o),0))}</div>
+    <div class="list">${debt.length?debt.map(card).join(''):'<div class="empty">Долгов нет.</div>'}</div>`;
+  }else{
+    v.innerHTML='<div class="list">'+(done.length?done.slice(0,100).map(card).join(''):'<div class="empty">Доставленные заказы появятся здесь.</div>')+'</div>';
+  }
+}
+
+// --- form ---
+function itemRow(i={name:'',qty:1,unit:'шт',sum:''}){
+  const d=document.createElement('div');d.className='item-row';
+  d.innerHTML=`<input list="products" placeholder="Скумбрия" value="${esc(i.name)}" aria-label="Товар">
+    <input type="number" step="0.1" min="0" inputmode="decimal" value="${esc(i.qty)}" aria-label="Количество">
+    <select aria-label="Единица">${['шт','кг','уп'].map(u=>`<option${u===i.unit?' selected':''}>${u}</option>`).join('')}</select>
+    <input type="number" min="0" inputmode="numeric" placeholder="₽" value="${esc(i.sum)}" aria-label="Сумма">
+    <button type="button" aria-label="Убрать товар">✕</button>`;
+  d.querySelector('button').onclick=()=>{d.remove();calc()};
+  d.oninput=calc;
+  $('#items').append(d);
+}
+const readItems=()=>[...$('#items').children].map(r=>{const [n,q,u,s]=r.querySelectorAll('input,select');return{name:n.value.trim(),qty:+q.value||0,unit:u.value,sum:+s.value||0}}).filter(i=>i.name);
+const calc=()=>$('#f-total').textContent=rub(readItems().reduce((a,i)=>a+i.sum,0));
+
+function openForm(o){
+  editing=o||null;
+  $('#formTitle').textContent=o?'Заказ':'Новый заказ';
+  $('#f-raw').value=o?.raw||'';$('#f-name').value=o?.name||'';$('#f-phone').value=o?.phone||'';
+  $('#f-addr').value=o?.address||'';$('#f-date').value=o?.date||today();$('#f-paid').value=o?.paid?'1':'0';$('#f-note').value=o?.note||'';
+  $('#items').innerHTML='';(o?.items?.length?o.items:[undefined]).forEach(i=>itemRow(i));
+  $('#products').innerHTML=[...new Set(orders.flatMap(x=>(x.items||[]).map(i=>i.name)))].map(n=>`<option value="${esc(n)}">`).join('');
+  $('#del').hidden=!o;calc();$('#dlg').showModal();
+}
+$('#add').onclick=()=>openForm();
+$('#addItem').onclick=()=>itemRow();
+$('#close').onclick=()=>$('#dlg').close();
+let delArmed=false;
+$('#del').onclick=async()=>{
+  if(!delArmed){delArmed=true;$('#del').textContent='Точно удалить?';setTimeout(()=>{delArmed=false;$('#del').textContent='Удалить'},3000);return}
+  delArmed=false;$('#del').textContent='Удалить';
+  const id=editing.id;$('#dlg').close();
+  orders=orders.filter(o=>o.id!==id);render();
+  persist();
+};
+$('#form').onsubmit=async e=>{
+  e.preventDefault();
+  const items=readItems();
+  if(!$('#f-name').value.trim()){$('#f-name').focus();return}
+  const o={name:$('#f-name').value.trim(),phone:$('#f-phone').value.trim(),address:$('#f-addr').value.trim(),
+    date:$('#f-date').value||today(),paid:$('#f-paid').value==='1',note:$('#f-note').value.trim(),raw:$('#f-raw').value.trim(),items,
+    status:editing?.status||'new',doneAt:editing?.doneAt||null,createdAt:editing?.createdAt||Date.now()};
+  $('#dlg').close();
+  await save(editing?.id,o);
+};
+// shortcut: orders live only in this phone's browser; move to a server DB if a second device or person needs them
+const KEY='smokehouse-orders', APIKEY='smokehouse-apikey';
+function persist(){
+  try{localStorage.setItem(KEY,JSON.stringify(orders));$('#sync').textContent='сохранено'}
+  catch(e){$('#banner').hidden=false;$('#banner').textContent='Не удалось сохранить в памяти телефона. Сделайте резервную копию в ⚙.'}
+}
+async function save(id,o){
+  const nid=id||Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  orders=orders.filter(x=>x.id!==nid).concat({...o,id:nid});render();persist();
+}
+
+$('#view').onclick=e=>{
+  const b=e.target.closest('button[data-act]');if(!b)return;
+  const o=orders.find(x=>x.id===b.dataset.id);if(!o)return;
+  const {id,...d}=o;
+  if(b.dataset.act==='edit')return openForm(o);
+  if(b.dataset.act==='done')save(id,{...d,status:'done',doneAt:Date.now()});
+  if(b.dataset.act==='undo')save(id,{...d,status:'new',doneAt:null});
+  if(b.dataset.act==='paid')save(id,{...d,paid:!o.paid});
+};
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render()});
+
+// --- import from chat via Claude ---
+let parsed=[];
+$('#imp').onclick=()=>{$('#impOut').innerHTML='';$('#impSave').hidden=true;$('#impDlg').showModal()};
+$('#impClose').onclick=()=>$('#impDlg').close();
+// Known clients and last unit prices help fill addresses and sums the chat omits
+function context(){
+  const clients={},prices={};
+  for(const o of [...orders].sort((a,b)=>(a.createdAt||0)-(b.createdAt||0))){
+    if(o.name)clients[o.name]={address:o.address,phone:o.phone};
+    for(const i of o.items||[])if(i.qty&&i.sum)prices[i.name+' ('+i.unit+')']=Math.round(i.sum/i.qty);
+  }
+  return {clients,prices};
+}
+$('#impForm').onsubmit=async e=>{
+  e.preventDefault();
+  const text=$('#impText').value.trim(), imgs=[...$('#impImg').files];
+  if(!text&&!imgs.length){$('#impText').focus();return}
+  if(!getKey()){$('#impOut').innerHTML='<div class="banner">Сначала введите ключ API в настройках ⚙.</div>';return}
+  const go=$('#impGo');go.disabled=true;go.textContent='Разбираю… (до минуты)';$('#impOut').innerHTML='';
+  const d=new Date(), ctx=context();
+  const prompt=`Ты разбираешь заявки на домашние копчения из группового чата. Сегодня ${today()} (${d.toLocaleDateString('ru-RU',{weekday:'long'})}).
+Найди в сообщениях${imgs.length?' и на скриншотах':''} все заказы. Одно сообщение может содержать несколько товаров; один человек может написать несколько сообщений подряд - объедини их в один заказ. Пропускай болтовню, вопросы и сообщения продавца. Подряд идущие сообщения без имени над ними принадлежат тому же автору, что и предыдущее (например "Сало, грамм 300." дополняет заказ выше). Реакция 👍 под сообщением значит, что продавец заказ принял: если на скриншоте у заказа нет 👍, всё равно включи его, но допиши в note "не принят". Если названо несколько дней ("понедельник, вторник"), возьми ближайший, остальные допиши в note. Время доставки ("вечер") пиши в note. Фото товаров не заказ, но подпись под фото может быть заказом. Если вес не указан ("кусочек сала"), ставь 1 шт и поясни в note.
+Известные клиенты (имя -> адрес, телефон): ${JSON.stringify(ctx.clients)}
+Цены за единицу из прошлых заказов (руб): ${JSON.stringify(ctx.prices)}
+Ответь только JSON-массивом объектов:
+[{"name":"имя клиента как в чате","phone":"","address":"","date":"YYYY-MM-DD","items":[{"name":"Скумбрия","qty":2,"unit":"шт","sum":0}],"note":"","raw":"исходный текст сообщения"}]
+Правила: unit только "шт", "кг" или "уп"; граммы переводи в кг (500 г -> 0.5 кг). Название товара с большой буквы, единообразно (используй названия из списка цен, если подходят). sum = qty * цена, если цена известна, иначе 0. Адрес и телефон бери из сообщения, иначе из известных клиентов, иначе пусто. date: если день не назван - сегодня; "завтра", "в субботу" и т.п. переводи в дату. Неясное пиши в note.
+
+Сообщения:
+${text||'(см. скриншоты)'}`;
+  try{
+    const r=await askClaude(prompt,imgs);
+    parsed=(Array.isArray(r)?r:[]).filter(o=>o&&o.name).map(o=>({name:String(o.name),phone:String(o.phone||''),address:String(o.address||''),
+      date:/^\d{4}-\d\d-\d\d$/.test(o.date)?o.date:today(),note:String(o.note||''),raw:String(o.raw||''),paid:false,status:'new',doneAt:null,
+      items:(Array.isArray(o.items)?o.items:[]).map(i=>({name:String(i.name||''),qty:+i.qty||0,unit:['шт','кг','уп'].includes(i.unit)?i.unit:'шт',sum:+i.sum||0})).filter(i=>i.name)}));
+    $('#impOut').innerHTML=parsed.length?parsed.map((o,k)=>`<label class="card" style="color:var(--fg);font-size:15px">
+      <div class="row"><span><input type="checkbox" data-k="${k}" checked style="width:auto"> <b>${esc(o.name)}</b></span><span class="sum">${rub(total(o))}</span></div>
+      <span class="muted">${fmtDay(o.date)}${o.address?' · '+esc(o.address):' · адрес не указан'}</span>
+      <ul class="items">${o.items.map(i=>`<li><span>${esc(i.name)}</span><span>${i.qty} ${esc(i.unit)}</span></li>`).join('')}</ul>
+      ${o.note?`<span class="muted">${esc(o.note)}</span>`:''}</label>`).join(''):'<div class="empty">Заказов в тексте не нашлось.</div>';
+    $('#impSave').hidden=!parsed.length;
+  }catch(err){
+    $('#impOut').innerHTML='<div class="banner">'+({auth:'Ключ API не подходит. Проверьте его в настройках ⚙.',money:'На счёте API закончились деньги или достигнут лимит. Пополните баланс на console.anthropic.com.',rate_limited:'Слишком много запросов, попробуйте через минуту.',invalid_json:'Не получилось разобрать ответ, нажмите ещё раз.',network:'Нет интернета или сервис недоступен, попробуйте ещё раз.'}[err?.code]||'Не получилось разобрать, попробуйте ещё раз.')+'</div>';
+  }finally{go.disabled=false;go.textContent='Разобрать'}
+};
+$('#impSave').onclick=async()=>{
+  const pick=[...$('#impOut').querySelectorAll('input[data-k]:checked')].map(c=>parsed[+c.dataset.k]);
+  $('#impDlg').close();$('#impText').value='';$('#impImg').value='';tab='orders';
+  for(const o of pick)await save(null,{...o,createdAt:Date.now()});
+};
+
+// --- Claude API (key stays in this browser) ---
+const getKey=()=>{try{return localStorage.getItem(APIKEY)||''}catch{return ''}};
+const toB64=f=>new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=no;r.readAsDataURL(f)});
+async function askClaude(prompt,imgs){
+  const content=[];
+  for(const f of imgs.slice(0,10))content.push({type:'image',source:{type:'base64',media_type:f.type||'image/jpeg',data:await toB64(f)}});
+  content.push({type:'text',text:prompt});
+  let res;
+  try{
+    res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':getKey(),
+      'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-5-5',max_tokens:8000,messages:[{role:'user',content}]})});
+  }catch{throw{code:'network'}}
+  if(res.status===401||res.status===403)throw{code:'auth'};
+  if(res.status===429)throw{code:'rate_limited'};
+  if(!res.ok)throw{code:/credit|billing/i.test(await res.text())?'money':'network'};
+  const text=(await res.json()).content?.filter(c=>c.type==='text').map(c=>c.text).join('')||'';
+  const m=text.match(/\[[\s\S]*\]/);
+  try{return JSON.parse(m?m[0]:text)}catch{throw{code:'invalid_json'}}
+}
+
+// --- settings: API key and backup ---
+$('#set').onclick=()=>{$('#s-key').value=getKey();$('#s-msg').textContent='';$('#setDlg').showModal()};
+$('#setClose').onclick=()=>$('#setDlg').close();
+$('#s-save').onclick=()=>{try{localStorage.setItem(APIKEY,$('#s-key').value.trim());$('#s-msg').textContent='Ключ сохранён.'}catch{$('#s-msg').textContent='Не удалось сохранить ключ.'}};
+$('#s-export').onclick=()=>{
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(orders,null,1)],{type:'application/json'}));
+  a.download='zakazy-'+today()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+};
+$('#s-import').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{
+    const data=JSON.parse(await f.text());if(!Array.isArray(data))throw 0;
+    const ids=new Set(orders.map(o=>o.id));
+    orders=orders.concat(data.filter(o=>o&&o.id&&o.name&&!ids.has(o.id)));persist();render();
+    $('#s-msg').textContent='Загружено. Всего заказов: '+orders.length+'.';
+  }catch{$('#s-msg').textContent='Это не файл резервной копии.'}
+  e.target.value='';
+};
+
+try{orders=JSON.parse(localStorage.getItem(KEY)||'[]')}catch{orders=[]}
+navigator.storage?.persist?.();
+render();
+</script>
+</body>
+</html>
