@@ -320,12 +320,14 @@ function render(){
         <select aria-label="Ед.изм.">${['кг','шт','уп'].map(u=>`<option${u===c.unit?' selected':''}>${u}</option>`).join('')}</select>
         <input type="number" min="0" inputmode="numeric" value="${c.price===''?'':+c.price}" aria-label="Цена">
         <button type="button" aria-label="Удалить строку">✕</button>`;
-      r.querySelector('button').onclick=()=>r.remove();
+      r.querySelector('button').onclick=()=>{r.remove();saveCat()};
       $('#c-rows').append(r);return r;
     };
     catalog.forEach(c=>row(c));
     $('#c-add').onclick=()=>row().querySelector('input').focus();
-    $('#c-save').onclick=()=>{
+    // Autosave on every edit so rows aren't lost when the tab is left before pressing Save
+    let t;$('#c-rows').oninput=()=>{clearTimeout(t);t=setTimeout(saveCat,400)};
+    const saveCat=$('#c-save').onclick=()=>{
       // stored as "Название; цена; ед" lines, the same text the handoff link carries
       const text=[...$('#c-rows').children].map(r=>{const [n,u,pr]=r.querySelectorAll('input,select');return [n.value.replace(/;/g,',').trim(),+pr.value||0,u.value]})
         .filter(x=>x[0]).map(x=>x.join('; ')).join('\n');
