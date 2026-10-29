@@ -4,6 +4,10 @@
 //    (первый раз: Новое развертывание → Веб-приложение, запуск от меня, доступ: Все).
 const LOGIN = 'admin';
 const PASSWORD = 'ЗАМЕНИТЕ_НА_СВОЙ_ПАРОЛЬ';
+// Уведомления о заявках с формы (оставьте пустым, что не нужно):
+const NOTIFY_EMAIL = '';   // ваша почта, бесплатно
+const SMSRU_API_ID = '';   // ключ API с sms.ru (платно, ~3–5 ₽ за SMS)
+const SMS_TO = '';         // номер для SMS, например 79171234567
 // Until the password is changed, the base stays closed
 const READY = PASSWORD.length >= 8 && !/^ЗАМЕНИТЕ/.test(PASSWORD);
 
@@ -94,5 +98,20 @@ function formOrder(d) {
   put(o);
   requests().appendRow([new Date(), cell(o.name), cell(o.phone), cell(o.address), o.date,
     cell(items.map(i => i.name + ' ' + i.qty + ' ' + i.unit).join(', ')), cell(o.note)]);
+  notify(o);
   return { ok: true };
+}
+
+// A failed notification must not lose the order, so errors are only logged
+function notify(o) {
+  const list = o.items.map(i => i.name + ' ' + i.qty + ' ' + i.unit).join(', ');
+  try {
+    if (NOTIFY_EMAIL) MailApp.sendEmail(NOTIFY_EMAIL, 'Новая заявка: ' + o.name,
+      [o.name, o.phone, o.address, 'Дата: ' + o.date, list, o.note].filter(Boolean).join('\n'));
+  } catch (err) { console.error('email', err); }
+  try {
+    // One Cyrillic SMS fits 70 characters
+    if (SMSRU_API_ID && SMS_TO) UrlFetchApp.fetch('https://sms.ru/sms/send?json=1&api_id=' + encodeURIComponent(SMSRU_API_ID) +
+      '&to=' + encodeURIComponent(SMS_TO) + '&msg=' + encodeURIComponent(('Заявка: ' + o.name + ', ' + list).slice(0, 70)));
+  } catch (err) { console.error('sms', err); }
 }
