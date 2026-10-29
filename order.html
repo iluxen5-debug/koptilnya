@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Заказ копчений</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Russo+One&family=Rubik:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#eef0ee; --card:#ffffff; --fg:#1d2321; --muted:#5f6b67; --line:#d6dbd8;
+  --accent:#8a4b12; --accent-fg:#fff; --ok:#2f7a4a; --warn:#b03a2e;
+  --display:"Russo One",system-ui,sans-serif; --body:"Rubik",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#141917; --card:#1e2522; --fg:#e8ece9; --muted:#9aa6a1; --line:#2f3834;
+  --accent:#e0a050; --accent-fg:#1a1205; --ok:#6cc58f; --warn:#f08a7e; color-scheme:dark}}
+[hidden]{display:none!important}
+html,body{background:var(--bg);color:var(--fg);margin:0}
+body{font:16px/1.4 var(--body);max-width:560px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-right,0px)) 40px max(16px,env(safe-area-inset-left,0px));font-variant-numeric:tabular-nums}
+h1{font:24px/1.15 var(--display);margin:8px 0 4px}
+.muted{color:var(--muted);font-size:14px}
+form,.done{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;display:grid;gap:12px;margin-top:12px}
+label{display:grid;gap:4px;font-size:14px;color:var(--muted)}
+input,select,textarea{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;width:100%;box-sizing:border-box;min-width:0}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:10px;padding:10px 12px;min-height:44px;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+.item{display:grid;grid-template-columns:minmax(0,1fr) 80px 72px 40px;gap:6px;align-items:center}
+.item button{padding:0;min-height:40px}
+.item .price{grid-column:1/-1;font-size:13px;color:var(--muted);margin-top:-2px}
+@media (max-width:420px){.item{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 40px}.item>:first-child{grid-column:1/-1}}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.err{color:var(--warn);font-size:14px}
+</style>
+</head>
+<body>
+<h1>Домашние копчения</h1>
+<div class="muted">Оставьте заявку, и мы привезём заказ по вашему адресу.</div>
+
+<form id="f" novalidate>
+  <label>Ваше имя<input id="name" autocomplete="name" required></label>
+  <label>Телефон<input id="phone" type="tel" autocomplete="tel" required></label>
+  <label>Адрес доставки<input id="address" autocomplete="street-address"></label>
+  <label>Когда привезти<input id="date" type="date"></label>
+  <div class="muted">Что заказать</div>
+  <datalist id="products"></datalist>
+  <div id="items" style="display:grid;gap:10px"></div>
+  <button type="button" id="more">+ ещё товар</button>
+  <div class="row"><span>Примерно</span><b id="total">0 ₽</b></div>
+  <div class="muted" id="weightNote" hidden>Весовые товары взвешиваются при сборке, точная сумма может немного отличаться.</div>
+  <label>Комментарий<textarea id="note" rows="2" placeholder="Подъезд, удобное время…"></textarea></label>
+  <div class="err" id="err" role="alert"></div>
+  <button class="primary" type="submit" id="send">Отправить заявку</button>
+</form>
+
+<div class="done" id="done" hidden>
+  <h1>Заявка отправлена</h1>
+  <div>Спасибо! Мы свяжемся с вами, если что-то уточним.</div>
+  <button type="button" id="again">Оформить ещё одну</button>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const api=decodeURIComponent(location.hash.slice(1));
+const rub=n=>Math.round(n||0).toLocaleString('ru-RU')+' ₽';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let catalog=[];
+const find=n=>catalog.find(c=>c.name.toLowerCase()===String(n).trim().toLowerCase());
+
+function itemRow(){
+  const d=document.createElement('div');d.className='item';
+  d.innerHTML=`<input list="products" placeholder="Товар" aria-label="Товар">
+    <input type="number" min="0" step="0.1" inputmode="decimal" value="1" aria-label="Количество">
+    <select aria-label="Единица"><option>шт</option><option>кг</option></select>
+    <button type="button" aria-label="Убрать товар">✕</button>
+    <div class="price"></div>`;
+  d.querySelector('button').onclick=()=>{d.remove();if(!$('#items').children.length)itemRow();calc()};
+  d.oninput=calc;$('#items').append(d);calc();
+}
+function readItems(){
+  return [...$('#items').children].map(r=>{const [n,q,u]=r.querySelectorAll('input,select');return{name:n.value.trim(),qty:+String(q.value).replace(',','.')||0,unit:u.value,r}}).filter(i=>i.name);
+}
+function calc(){
+  let sum=0,weight=false;
+  for(const r of $('#items').children){
+    const [n,q,u]=r.querySelectorAll('input,select'),c=find(n.value),qty=+String(q.value).replace(',','.')||0;
+    // Piece-priced products are sold only by the piece
+    if(c&&c.unit!=='кг'){u.value='шт';u.disabled=true}else u.disabled=false;
+    let t='';
+    if(c&&c.price){
+      if(c.unit!=='кг'){sum+=qty*c.price;t=`${c.price} ₽/шт`}
+      else if(u.value==='кг'){sum+=qty*c.price;weight=true;t=`${c.price} ₽/кг`}
+      else{weight=true;t=`${c.price} ₽/кг, по весу`}
+    }
+    r.querySelector('.price').textContent=t;
+  }
+  $('#total').textContent=rub(sum)+(weight?' + вес':'');
+  $('#weightNote').hidden=!weight;
+}
+$('#more').onclick=()=>itemRow();
+
+// Remember the customer's details for the next order
+const KEEP=['name','phone','address'];
+try{const s=JSON.parse(localStorage.getItem('order-me')||'{}');KEEP.forEach(k=>$('#'+k).value=s[k]||'')}catch{}
+
+$('#f').onsubmit=async e=>{
+  e.preventDefault();$('#err').textContent='';
+  const items=readItems().filter(i=>i.qty>0).map(({name,qty,unit})=>({name,qty,unit}));
+  if(!$('#name').value.trim()){$('#err').textContent='Укажите имя.';$('#name').focus();return}
+  if(!$('#phone').value.trim()){$('#err').textContent='Укажите телефон.';$('#phone').focus();return}
+  if(!items.length){$('#err').textContent='Добавьте хотя бы один товар.';return}
+  if(!api){$('#err').textContent='Ссылка на форму неполная. Попросите продавца прислать её заново.';return}
+  const body={action:'order',name:$('#name').value,phone:$('#phone').value,address:$('#address').value,date:$('#date').value,note:$('#note').value,items};
+  $('#send').disabled=true;$('#send').textContent='Отправляю…';
+  try{
+    // text/plain body keeps it a simple request (no CORS preflight)
+    const r=await (await fetch(api,{method:'POST',body:JSON.stringify(body)})).json();
+    if(!r.ok)throw new Error(r.error||'');
+    try{localStorage.setItem('order-me',JSON.stringify(Object.fromEntries(KEEP.map(k=>[k,$('#'+k).value]))))}catch{}
+    $('#f').hidden=true;$('#done').hidden=false;
+  }catch(err){$('#err').textContent=(err.message||'Не получилось отправить.')+' Проверьте интернет и попробуйте ещё раз.'}
+  finally{$('#send').disabled=false;$('#send').textContent='Отправить заявку'}
+};
+$('#again').onclick=()=>{$('#items').innerHTML='';itemRow();$('#note').value='';$('#date').value='';$('#done').hidden=true;$('#f').hidden=false};
+
+itemRow();
+if(api)fetch(api+(api.includes('?')?'&':'?')+'action=catalog').then(r=>r.json()).then(c=>{
+  if(!Array.isArray(c))return;
+  catalog=c.filter(x=>x&&x.name);
+  $('#products').innerHTML=catalog.map(x=>`<option value="${esc(x.name)}">`).join('');calc();
+}).catch(()=>{});
+</script>
+</body>
+</html>

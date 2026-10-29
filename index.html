@@ -122,6 +122,13 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
     <label>Ключ Anthropic API (для разбора заявок из чата)<input id="s-key" type="password" autocomplete="off" placeholder="sk-ant-…"></label>
     <label>Адрес API (менять, только если ключ куплен не у Anthropic)<input id="s-url" type="url" autocomplete="off" placeholder="https://api.anthropic.com"></label>
     <label>Модель<input id="s-model" autocomplete="off" placeholder="claude-sonnet-5-5"></label>
+    <details><summary>Форма заявки для клиентов</summary>
+      <div style="display:grid;gap:8px;margin-top:8px">
+        <label>Адрес веб-приложения Google (…/exec)<input id="s-form" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></label>
+        <label>Секрет (тот же, что в скрипте)<input id="s-secret" type="password" autocomplete="off"></label>
+        <button type="button" id="s-formlink">Скопировать ссылку на форму</button>
+      </div>
+    </details>
     <button class="primary" type="button" id="s-save">Сохранить</button>
     <div class="muted">Заказы хранятся только в этом телефоне. Раз в неделю сохраняйте резервную копию, чтобы не потерять их при очистке браузера.</div>
     <button type="button" id="s-export">Скачать резервную копию</button>
@@ -265,7 +272,7 @@ function card(o){
     <ul class="items">${(o.items||[]).map(i=>`<li><span>${esc(i.name)}</span><span>${+i.qty||''} ${esc(i.unit)}${+i.fact?` → ${grams(i.fact)} г`:''}</span></li>`).join('')}</ul>
     ${(o.items||[]).some(needsWeight)?'<span class="chip">сумма уточнится после взвешивания</span>':''}
     ${o.note?`<span class="muted">${esc(o.note)}</span>`:''}
-    <div class="row"><span class="chip ${o.paid?'paid':'unpaid'}">${o.paid?'оплачен':'не оплачен'}</span>${o.status==='done'?`<span class="chip">доставлен ${o.doneAt?new Date(o.doneAt).toLocaleDateString('ru-RU'):''}</span>`:''}</div>
+    <div class="row">${o.from==='form'?'<span class="chip">с формы</span>':''}<span class="chip ${o.paid?'paid':'unpaid'}">${o.paid?'оплачен':'не оплачен'}</span>${o.status==='done'?`<span class="chip">доставлен ${o.doneAt?new Date(o.doneAt).toLocaleDateString('ru-RU'):''}</span>`:''}</div>
     <div class="actions">
       <button data-act="edit" data-id="${o.id}">Изменить</button>
       <button data-act="paid" data-id="${o.id}">${o.paid?'Снять оплату':'Оплачен'}</button>
@@ -335,7 +342,7 @@ function render(){
       const text=[...$('#c-rows').children].map(r=>{const [n,u,pr]=r.querySelectorAll('input,select');return [n.value.replace(/;/g,',').trim(),+pr.value||0,u.value]})
         .filter(x=>x[0]).map(x=>x.join('; ')).join('\n');
       try{localStorage.setItem(CATALOG_KEY,text)}catch{}
-      catalog=parseCatalog(text);$('#c-msg').textContent='Сохранено: '+catalog.length+' товаров.';
+      catalog=parseCatalog(text);$('#c-msg').textContent='Сохранено: '+catalog.length+' товаров.';pushCatalog();
     };
   }else{
     v.innerHTML='<div class="list">'+(done.length?done.slice(0,100).map(card).join(''):'<div class="empty">Доставленные заказы появятся здесь.</div>')+'</div>';
@@ -592,7 +599,7 @@ async function unseal(str,login,pass){
 $('#h-make').onclick=async()=>{
   if(!getKey()){$('#s-msg').textContent='Сначала сохраните ключ API.';return}
   if($('#h-pass').value.length<8){$('#s-msg').textContent='Пароль должен быть не короче 8 символов.';$('#h-pass').focus();return}
-  const cfg={key:getKey(),url:ls('smokehouse-url',DEF_URL),model:ls('smokehouse-model',DEF_MODEL),catalog:catalogText()};
+  const cfg={key:getKey(),url:ls('smokehouse-url',DEF_URL),model:ls('smokehouse-model',DEF_MODEL),catalog:catalogText(),form:ls(FORM),secret:ls(SECRET)};
   const link=location.origin+location.pathname+'#cfg='+await seal(cfg,$('#h-login').value,$('#h-pass').value);
   $('#h-link').hidden=false;$('#h-link').value=link;$('#h-link').select();
   try{await navigator.clipboard.writeText(link);$('#s-msg').textContent='Ссылка скопирована. Пароль передайте отдельно.'}
@@ -606,12 +613,48 @@ if(cfgHash){
     try{
       const c=await unseal(cfgHash[1],$('#l-login').value,$('#l-pass').value);
       localStorage.setItem(APIKEY,c.key);localStorage.setItem('smokehouse-url',c.url||DEF_URL);localStorage.setItem('smokehouse-model',c.model||DEF_MODEL);
+      if(c.form){localStorage.setItem(FORM,c.form);localStorage.setItem(SECRET,c.secret||'');syncForm()}
       if(c.catalog){localStorage.setItem(CATALOG_KEY,c.catalog);catalog=parseCatalog(c.catalog);render()}
       history.replaceState(null,'',location.pathname);$('#loginDlg').close();
       $('#banner').hidden=false;$('#banner').textContent='Готово: настройки сохранены в этом телефоне. Добавьте страницу на главный экран.';
     }catch{$('#l-msg').textContent='Неверный логин или пароль.'}
   };
 }
+// --- customer order form: requests land in a Google Sheet (apps-script/Code.gs), pulled in here ---
+const FORM='smokehouse-form', SECRET='smokehouse-form-secret';
+const formApi=()=>ls(FORM).trim();
+$('#s-save').addEventListener('click',()=>{try{localStorage.setItem(FORM,$('#s-form').value.trim());localStorage.setItem(SECRET,$('#s-secret').value.trim())}catch{}pushCatalog();syncForm()});
+$('#set').addEventListener('click',()=>{$('#s-form').value=ls(FORM);$('#s-secret').value=ls(SECRET)});
+$('#s-formlink').onclick=async()=>{
+  if(!formApi()){$('#s-msg').textContent='Сначала впишите адрес веб-приложения и нажмите «Сохранить».';return}
+  const link=location.origin+location.pathname.replace(/[^/]*$/,'')+'order.html#'+encodeURIComponent(formApi());
+  try{await navigator.clipboard.writeText(link);$('#s-msg').textContent='Ссылка скопирована: '+link}catch{$('#s-msg').textContent=link}
+};
+const post=body=>fetch(formApi(),{method:'POST',body:JSON.stringify({...body,token:ls(SECRET)})}).then(r=>r.json());
+function pushCatalog(){if(formApi()&&ls(SECRET))post({action:'catalog',catalog}).catch(()=>{})}
+let syncing=false;
+async function syncForm(){
+  if(!formApi()||!ls(SECRET)||syncing)return;
+  syncing=true;
+  try{
+    const list=await (await fetch(formApi()+(formApi().includes('?')?'&':'?')+'action=orders&token='+encodeURIComponent(ls(SECRET)))).json();
+    if(!Array.isArray(list))throw list;
+    const have=new Set(orders.map(o=>o.id)),fresh=list.filter(o=>o&&o.id&&!have.has(o.id));
+    for(const o of fresh){
+      const k=knownClient(o.name);
+      orders.push({id:String(o.id),name:String(o.name||''),phone:String(o.phone||k?.phone||''),address:String(o.address||k?.address||''),
+        date:/^\d{4}-\d\d-\d\d$/.test(o.date)?o.date:today(),note:String(o.note||''),raw:'',paid:false,status:'new',doneAt:null,createdAt:Date.now(),from:'form',
+        items:(Array.isArray(o.items)?o.items:[]).map(i=>withPrice({name:String(i.name||''),qty:+i.qty||0,unit:['кг','шт','уп'].includes(i.unit)?i.unit:'шт',sum:0}))});
+    }
+    if(fresh.length){persist();render();$('#banner').hidden=false;$('#banner').textContent='Новых заявок с формы: '+fresh.length+'.'}
+    // Mark everything we hold as taken, so the sheet stops returning them
+    if(list.length)await post({action:'taken',ids:list.map(o=>o.id)});
+  }catch(e){if(e?.error==='bad request'){$('#banner').hidden=false;$('#banner').textContent='Форма заявок: неверный секрет. Проверьте его в ⚙.'}}
+  finally{syncing=false}
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncForm()});
+setInterval(()=>{if(!document.hidden)syncForm()},120000);
+setTimeout(syncForm,0);
 navigator.storage?.persist?.();
 render();
 </script>
