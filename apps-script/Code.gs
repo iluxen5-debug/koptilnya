@@ -115,3 +115,8 @@ function notify(o) {
       '&to=' + encodeURIComponent(SMS_TO) + '&msg=' + encodeURIComponent(('Заявка: ' + o.name + ', ' + list).slice(0, 70)));
   } catch (err) { console.error('sms', err); }
 }
+
+// Run this from the editor once: it asks Google for mail permission and sends a test letter
+function testMail() {
+  MailApp.sendEmail(NOTIFY_EMAIL, 'Проверка уведомлений', 'Если вы читаете это письмо, уведомления о заявках работают.');
+}
