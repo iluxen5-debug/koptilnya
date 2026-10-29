@@ -90,7 +90,9 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
   <form method="dialog" onsubmit="return false">
     <div class="row"><b style="font:18px var(--display)">Настройки</b><button type="button" id="setClose" aria-label="Закрыть">✕</button></div>
     <label>Ключ Anthropic API (для разбора заявок из чата)<input id="s-key" type="password" autocomplete="off" placeholder="sk-ant-…"></label>
-    <button class="primary" type="button" id="s-save">Сохранить ключ</button>
+    <label>Адрес API (менять, только если ключ куплен не у Anthropic)<input id="s-url" type="url" autocomplete="off" placeholder="https://api.anthropic.com"></label>
+    <label>Модель<input id="s-model" autocomplete="off" placeholder="claude-sonnet-5-5"></label>
+    <button class="primary" type="button" id="s-save">Сохранить</button>
     <div class="muted">Заказы хранятся только в этом телефоне. Раз в неделю сохраняйте резервную копию, чтобы не потерять их при очистке браузера.</div>
     <button type="button" id="s-export">Скачать резервную копию</button>
     <label>Загрузить из копии<input id="s-import" type="file" accept=".json,application/json"></label>
@@ -316,7 +318,7 @@ ${text||'(см. скриншоты)'}`;
       ${o.note?`<span class="muted">${esc(o.note)}</span>`:''}</label>`).join(''):'<div class="empty">Заказов в тексте не нашлось.</div>';
     $('#impSave').hidden=!parsed.length;
   }catch(err){
-    $('#impOut').innerHTML='<div class="banner">'+({auth:'Ключ API не подходит. Проверьте его в настройках ⚙.',money:'На счёте API закончились деньги или достигнут лимит. Пополните баланс на console.anthropic.com.',rate_limited:'Слишком много запросов, попробуйте через минуту.',invalid_json:'Не получилось разобрать ответ, нажмите ещё раз.',network:'Нет интернета или сервис недоступен, попробуйте ещё раз.'}[err?.code]||'Не получилось разобрать, попробуйте ещё раз.')+'</div>';
+    $('#impOut').innerHTML='<div class="banner">'+({auth:'Ключ API не подходит. Проверьте его в настройках ⚙.',money:'На счёте API закончились деньги или достигнут лимит. Пополните баланс на console.anthropic.com.',rate_limited:'Слишком много запросов, попробуйте через минуту.',invalid_json:'Не получилось разобрать ответ, нажмите ещё раз.',network:'Сервис не отвечает. Проверьте интернет и адрес API в настройках ⚙.'}[err?.code]||'Не получилось разобрать, попробуйте ещё раз.')+'</div>';
   }finally{go.disabled=false;go.textContent='Разобрать'}
 };
 $('#impSave').onclick=async()=>{
@@ -326,7 +328,10 @@ $('#impSave').onclick=async()=>{
 };
 
 // --- Claude API (key stays in this browser) ---
-const getKey=()=>{try{return localStorage.getItem(APIKEY)||''}catch{return ''}};
+const ls=(k,d='')=>{try{return localStorage.getItem(k)||d}catch{return d}};
+const getKey=()=>ls(APIKEY);
+// Base URL and model are configurable so an Anthropic-compatible proxy can be used instead of api.anthropic.com
+const DEF_URL='https://api.anthropic.com', DEF_MODEL='claude-sonnet-5-5';
 const toB64=f=>new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=no;r.readAsDataURL(f)});
 async function askClaude(prompt,imgs){
   const content=[];
@@ -334,9 +339,11 @@ async function askClaude(prompt,imgs){
   content.push({type:'text',text:prompt});
   let res;
   try{
-    res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':getKey(),
+    const base=ls('smokehouse-url',DEF_URL).replace(/\/+$/,'').replace(/\/v1$/,'');
+    const auth=base===DEF_URL?{}:{authorization:'Bearer '+getKey()};
+    res=await fetch(base+'/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':getKey(),...auth,
       'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-5-5',max_tokens:8000,messages:[{role:'user',content}]})});
+      body:JSON.stringify({model:ls('smokehouse-model',DEF_MODEL),max_tokens:8000,messages:[{role:'user',content}]})});
   }catch{throw{code:'network'}}
   if(res.status===401||res.status===403)throw{code:'auth'};
   if(res.status===429)throw{code:'rate_limited'};
@@ -347,9 +354,9 @@ async function askClaude(prompt,imgs){
 }
 
 // --- settings: API key and backup ---
-$('#set').onclick=()=>{$('#s-key').value=getKey();$('#s-msg').textContent='';$('#setDlg').showModal()};
+$('#set').onclick=()=>{$('#s-key').value=getKey();$('#s-url').value=ls('smokehouse-url',DEF_URL);$('#s-model').value=ls('smokehouse-model',DEF_MODEL);$('#s-msg').textContent='';$('#setDlg').showModal()};
 $('#setClose').onclick=()=>$('#setDlg').close();
-$('#s-save').onclick=()=>{try{localStorage.setItem(APIKEY,$('#s-key').value.trim());$('#s-msg').textContent='Ключ сохранён.'}catch{$('#s-msg').textContent='Не удалось сохранить ключ.'}};
+$('#s-save').onclick=()=>{try{localStorage.setItem(APIKEY,$('#s-key').value.trim());localStorage.setItem('smokehouse-url',$('#s-url').value.trim()||DEF_URL);localStorage.setItem('smokehouse-model',$('#s-model').value.trim()||DEF_MODEL);$('#s-msg').textContent='Сохранено.'}catch{$('#s-msg').textContent='Не удалось сохранить ключ.'}};
 $('#s-export').onclick=()=>{
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob([JSON.stringify(orders,null,1)],{type:'application/json'}));
