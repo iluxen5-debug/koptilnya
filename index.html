@@ -64,6 +64,8 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
 .item-row{display:grid;grid-template-columns:minmax(0,1fr) 64px 58px 84px 36px;gap:6px;align-items:center}
 .item-row button{min-height:36px;padding:0}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.weigh{display:grid;grid-template-columns:minmax(0,1fr) 96px 76px;gap:8px;align-items:center}
+.weigh b{text-align:right;white-space:nowrap}
 .banner{background:var(--chip);border-radius:10px;padding:10px 12px;font-size:13px}
 @media (prefers-reduced-motion:no-preference){.card{transition:opacity .2s}}
 </style>
@@ -107,9 +109,16 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
     <div class="muted">Заказы хранятся только в этом телефоне. Раз в неделю сохраняйте резервную копию, чтобы не потерять их при очистке браузера.</div>
     <button type="button" id="s-export">Скачать резервную копию</button>
     <label>Загрузить из копии<input id="s-import" type="file" accept=".json,application/json"></label>
+    <details><summary>Каталог и цены</summary>
+      <div style="display:grid;gap:8px;margin-top:8px">
+        <div class="muted">Одна строка — один товар: Название; цена; ед. Ед: кг, шт или уп. Цена с «кг» считается по весу.</div>
+        <textarea id="c-text" rows="12" spellcheck="false"></textarea>
+        <button type="button" id="c-save">Сохранить каталог</button>
+      </div>
+    </details>
     <details><summary>Передать настройки клиенту</summary>
       <div style="display:grid;gap:8px;margin-top:8px">
-        <div class="muted">Ключ, адрес API и модель упакуются в ссылку и зашифруются логином и паролем. Ссылку и пароль отправьте клиенту лично.</div>
+        <div class="muted">Ключ, адрес API, модель и каталог упакуются в ссылку и зашифруются логином и паролем. Ссылку и пароль отправьте клиенту лично.</div>
         <div class="two"><label>Логин<input id="h-login" value="admin" autocomplete="off"></label><label>Пароль<input id="h-pass" type="password" autocomplete="new-password"></label></div>
         <button type="button" id="h-make">Сделать ссылку для клиента</button>
         <textarea id="h-link" rows="3" readonly hidden></textarea>
@@ -167,7 +176,48 @@ const today=()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOff
 const fmtDay=s=>{if(s===today())return'Сегодня';const d=new Date(s+'T12:00');return d.toLocaleDateString('ru-RU',{weekday:'short',day:'numeric',month:'long'})};
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let pasted=[];
-const total=o=>(o.items||[]).reduce((a,i)=>a+(+i.sum||0),0);
+// Price list: one product per line "Название; цена; ед" (ед = кг, шт или уп)
+const CATALOG_KEY='smokehouse-catalog';
+const DEF_CATALOG=`Гусь; 1500; кг
+Утка; 900; кг
+Курица; 550; кг
+Крылья; 650; кг
+Грудинка свиная г/к; 700; кг
+Грудинка солёная; 720; кг
+Сало солёное; 720; кг
+Мясо свинины; 850; кг
+Терпуг г/к; 900; кг
+Горбуша х/к без головы; 950; кг
+Филе горбуши х/к; 1100; кг
+Скумбрия х/к; 900; кг
+Котлеты куриные; 650; кг
+Наггетсы; 600; кг
+Колбаса свинина/говядина; 350; шт
+Рагу говяжье; 200; шт
+Фарш домашний; 680; кг
+Стейки; 0; кг`;
+const norm=s=>String(s||'').toLowerCase().replace(/ё/g,'е').replace(/\s+/g,' ').trim();
+function parseCatalog(text){
+  return text.split('\n').map(l=>l.split(';').map(x=>x.trim())).filter(p=>p[0])
+    .map(([name,price,unit])=>({name,price:+String(price||'').replace(/[^\d.]/g,'')||0,unit:['кг','шт','уп'].includes(unit)?unit:'кг'}));
+}
+const catalogText=()=>{try{return localStorage.getItem(CATALOG_KEY)??DEF_CATALOG}catch{return DEF_CATALOG}};
+let catalog=parseCatalog(catalogText());
+const findProduct=name=>catalog.find(c=>norm(c.name)===norm(name));
+// Copy the current price onto the item, so later price changes don't rewrite old orders
+function withPrice(i){
+  const c=findProduct(i.name);
+  return c&&c.price?{...i,name:c.name,price:c.price,perKg:c.unit==='кг',unit:c.unit==='кг'&&i.unit==='уп'?'кг':i.unit}:{...i,price:0,perKg:false};
+}
+// Weight-priced items: actual weight wins, else ordered kg; pieces of a by-kg product cost nothing until weighed
+function itemSum(i){
+  if(!i.price)return +i.sum||0;
+  if(i.perKg)return +i.fact?+i.fact*i.price:i.unit==='кг'?(+i.qty||0)*i.price:0;
+  return (+i.qty||0)*i.price;
+}
+const needsWeight=i=>i.perKg&&i.unit!=='кг'&&!+i.fact;
+const total=o=>(o.items||[]).reduce((a,i)=>a+itemSum(i),0);
+console.assert(itemSum({price:900,perKg:true,unit:'шт',qty:2})===0&&itemSum({price:900,perKg:true,unit:'шт',qty:2,fact:1.2})===1080&&itemSum({price:900,perKg:true,unit:'кг',qty:0.5})===450&&itemSum({price:350,perKg:false,unit:'шт',qty:6})===2100&&itemSum({price:0,sum:300})===300,'itemSum');
 
 let orders=[], tab='orders', editing=null;
 
@@ -189,7 +239,8 @@ function card(o){
     <div class="row"><span class="name">${esc(o.name)}</span><span class="sum">${rub(t)}</span></div>
     ${o.address?`<a class="addr" href="${map}" target="_blank" rel="noopener">📍 ${esc(o.address)}</a>`:''}
     ${o.phone?`<span class="muted">☎ <span style="user-select:all">${esc(o.phone)}</span></span>`:''}
-    <ul class="items">${(o.items||[]).map(i=>`<li><span>${esc(i.name)}</span><span>${+i.qty||''} ${esc(i.unit)}</span></li>`).join('')}</ul>
+    <ul class="items">${(o.items||[]).map(i=>`<li><span>${esc(i.name)}</span><span>${+i.qty||''} ${esc(i.unit)}${+i.fact?` → ${+i.fact} кг`:''}</span></li>`).join('')}</ul>
+    ${(o.items||[]).some(needsWeight)?'<span class="chip">сумма уточнится после взвешивания</span>':''}
     ${o.note?`<span class="muted">${esc(o.note)}</span>`:''}
     <div class="row"><span class="chip ${o.paid?'paid':'unpaid'}">${o.paid?'оплачен':'не оплачен'}</span>${o.status==='done'?`<span class="chip">доставлен ${o.doneAt?new Date(o.doneAt).toLocaleDateString('ru-RU'):''}</span>`:''}</div>
     <div class="actions">
@@ -213,7 +264,14 @@ function render(){
     const days=[...new Set(open.map(o=>o.date))];
     if(!days.length){v.innerHTML='<div class="empty">Собирать нечего: открытых заказов нет.</div>';return}
     v.innerHTML=days.map(d=>{const l=packList(open.filter(o=>o.date===d));
-      return `<div class="day">${fmtDay(d)}</div><div class="card"><table>${l.map(e=>`<tr><td>${esc(e.name)}</td><td>${+e.qty.toFixed(3)} ${esc(e.unit)}</td></tr>`).join('')}</table></div>`}).join('');
+      const weigh=open.filter(o=>o.date===d&&(o.items||[]).some(i=>i.perKg));
+      return `<div class="day">${fmtDay(d)}</div><div class="card"><table>${l.map(e=>`<tr><td>${esc(e.name)}</td><td>${+e.qty.toFixed(3)} ${esc(e.unit)}</td></tr>`).join('')}</table></div>
+      ${weigh.length?`<div class="day">Взвесить · ${fmtDay(d)}</div><div class="list">${weigh.map(o=>`<div class="card">
+        <div class="row"><span class="name">${esc(o.name)}</span><span class="sum">${rub(total(o))}</span></div>
+        ${o.items.map((i,k)=>i.perKg?`<div class="weigh"><span>${esc(i.name)}<br><span class="muted">заказ ${+i.qty} ${esc(i.unit)} · ${i.price} ₽/кг</span></span>
+          <input type="number" step="0.001" min="0" inputmode="decimal" placeholder="факт, кг" value="${+i.fact||''}" data-oid="${o.id}" data-k="${k}" aria-label="Фактический вес, кг: ${esc(i.name)}">
+          <b>${needsWeight(i)?'—':rub(itemSum(i))}</b></div>`:'').join('')}
+      </div>`).join('')}</div>`:''}`}).join('');
   }else if(tab==='money'){
     const now=new Date(), ym=today().slice(0,7), wk=new Date(now-6*864e5).setHours(0,0,0,0);
     const sum=f=>orders.filter(f).reduce((a,o)=>a+total(o),0);
@@ -233,7 +291,7 @@ function render(){
 
 // --- form ---
 function itemRow(i={name:'',qty:1,unit:'шт',sum:''}){
-  const d=document.createElement('div');d.className='item-row';
+  const d=document.createElement('div');d.className='item-row';d.dataset.fact=i.fact||'';
   d.innerHTML=`<input list="products" placeholder="Скумбрия" value="${esc(i.name)}" aria-label="Товар">
     <input type="number" step="0.1" min="0" inputmode="decimal" value="${esc(i.qty)}" aria-label="Количество">
     <select aria-label="Единица">${['шт','кг','уп'].map(u=>`<option${u===i.unit?' selected':''}>${u}</option>`).join('')}</select>
@@ -241,10 +299,20 @@ function itemRow(i={name:'',qty:1,unit:'шт',sum:''}){
     <button type="button" aria-label="Убрать товар">✕</button>`;
   d.querySelector('button').onclick=()=>{d.remove();calc()};
   d.oninput=calc;
-  $('#items').append(d);
+  $('#items').append(d);calc();
 }
-const readItems=()=>[...$('#items').children].map(r=>{const [n,q,u,s]=r.querySelectorAll('input,select');return{name:n.value.trim(),qty:+q.value||0,unit:u.value,sum:+s.value||0}}).filter(i=>i.name);
-const calc=()=>$('#f-total').textContent=rub(readItems().reduce((a,i)=>a+i.sum,0));
+const readItems=()=>[...$('#items').children].map(r=>{const [n,q,u,s]=r.querySelectorAll('input,select');
+  return withPrice({name:n.value.trim(),qty:+q.value||0,unit:u.value,sum:+s.value||0,fact:+r.dataset.fact||0})}).filter(i=>i.name);
+// Catalog products get their sum computed (read-only); unknown products keep a hand-typed sum
+function calc(){
+  for(const r of $('#items').children){
+    const [n,q,u,s]=r.querySelectorAll('input,select');const i=withPrice({name:n.value,qty:+q.value||0,unit:u.value,fact:+r.dataset.fact||0});
+    s.readOnly=!!i.price;
+    if(i.price){s.value=needsWeight(i)?'':Math.round(itemSum(i));s.placeholder=needsWeight(i)?'вес':'₽'}else s.placeholder='₽';
+  }
+  const it=readItems();
+  $('#f-total').textContent=rub(it.reduce((a,i)=>a+itemSum(i),0))+(it.some(needsWeight)?' + по весу':'');
+}
 
 function openForm(o){
   editing=o||null;
@@ -252,7 +320,7 @@ function openForm(o){
   $('#f-raw').value=o?.raw||'';$('#f-name').value=o?.name||'';$('#f-phone').value=o?.phone||'';
   $('#f-addr').value=o?.address||'';$('#f-date').value=o?.date||today();$('#f-paid').value=o?.paid?'1':'0';$('#f-note').value=o?.note||'';
   $('#items').innerHTML='';(o?.items?.length?o.items:[undefined]).forEach(i=>itemRow(i));
-  $('#products').innerHTML=[...new Set(orders.flatMap(x=>(x.items||[]).map(i=>i.name)))].map(n=>`<option value="${esc(n)}">`).join('');
+  $('#products').innerHTML=[...new Set([...catalog.map(c=>c.name),...orders.flatMap(x=>(x.items||[]).map(i=>i.name))])].map(n=>`<option value="${esc(n)}">`).join('');
   $('#del').hidden=!o;calc();$('#dlg').showModal();
 }
 $('#add').onclick=()=>openForm();
@@ -284,9 +352,18 @@ function persist(){
 }
 async function save(id,o){
   const nid=id||Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  orders=orders.filter(x=>x.id!==nid).concat({...o,id:nid});render();persist();
+  const k=orders.findIndex(x=>x.id===nid);  // update in place so cards don't jump while weighing
+  if(k<0)orders.push({...o,id:nid});else orders[k]={...o,id:nid};
+  render();persist();
 }
 
+$('#view').onchange=e=>{
+  const inp=e.target.closest('input[data-oid]');if(!inp)return;
+  const o=orders.find(x=>x.id===inp.dataset.oid);if(!o)return;
+  const {id,...d}=o;
+  d.items=o.items.map((i,k)=>k===+inp.dataset.k?{...i,fact:+String(inp.value).replace(',','.')||0}:i);
+  save(id,d);
+};
 $('#view').onclick=e=>{
   const b=e.target.closest('button[data-act]');if(!b)return;
   const o=orders.find(x=>x.id===b.dataset.id);if(!o)return;
@@ -341,10 +418,10 @@ $('#impForm').onsubmit=async e=>{
   const prompt=`Ты разбираешь заявки на домашние копчения из группового чата. Сегодня ${today()} (${d.toLocaleDateString('ru-RU',{weekday:'long'})}).
 Найди в сообщениях${imgs.length?' и на скриншотах':''} все заказы. Одно сообщение может содержать несколько товаров; один человек может написать несколько сообщений подряд - объедини их в один заказ. Пропускай болтовню, вопросы и сообщения продавца. Подряд идущие сообщения без имени над ними принадлежат тому же автору, что и предыдущее (например "Сало, грамм 300." дополняет заказ выше). Реакция 👍 под сообщением значит, что продавец заказ принял: если на скриншоте у заказа нет 👍, всё равно включи его, но допиши в note "не принят". Если названо несколько дней ("понедельник, вторник"), возьми ближайший, остальные допиши в note. Время доставки ("вечер") пиши в note. Фото товаров не заказ, но подпись под фото может быть заказом. Если вес не указан ("кусочек сала"), ставь 1 шт и поясни в note.
 Известные клиенты (имя -> адрес, телефон): ${JSON.stringify(ctx.clients)}
-Цены за единицу из прошлых заказов (руб): ${JSON.stringify(ctx.prices)}
+Каталог товаров (используй эти названия): ${catalog.map(c=>c.name).join('; ')}
 Ответь только JSON-массивом объектов:
 [{"name":"имя клиента как в чате","phone":"","address":"","date":"YYYY-MM-DD","items":[{"name":"Скумбрия","qty":2,"unit":"шт","sum":0}],"note":"","raw":"исходный текст сообщения"}]
-Правила: unit только "шт", "кг" или "уп"; граммы переводи в кг (500 г -> 0.5 кг). Название товара с большой буквы, единообразно (используй названия из списка цен, если подходят). sum = qty * цена, если цена известна, иначе 0. Адрес и телефон бери из сообщения, иначе из известных клиентов, иначе пусто. date: если день не назван - сегодня; "завтра", "в субботу" и т.п. переводи в дату. Неясное пиши в note.
+Правила: unit только "шт", "кг" или "уп"; граммы переводи в кг (500 г -> 0.5 кг). Название товара с большой буквы, единообразно (бери название из каталога, если товар там есть). sum всегда 0 (цены посчитает программа). Адрес и телефон бери из сообщения, иначе из известных клиентов, иначе пусто. date: если день не назван - сегодня; "завтра", "в субботу" и т.п. переводи в дату. Неясное пиши в note.
 
 Сообщения:
 ${text||'(см. скриншоты)'}`;
@@ -352,11 +429,11 @@ ${text||'(см. скриншоты)'}`;
     const r=await askClaude(prompt,imgs);
     parsed=(Array.isArray(r)?r:[]).filter(o=>o&&o.name).map(o=>({name:String(o.name),phone:String(o.phone||''),address:String(o.address||''),
       date:/^\d{4}-\d\d-\d\d$/.test(o.date)?o.date:today(),note:String(o.note||''),raw:String(o.raw||''),paid:false,status:'new',doneAt:null,
-      items:(Array.isArray(o.items)?o.items:[]).map(i=>({name:String(i.name||''),qty:+i.qty||0,unit:['шт','кг','уп'].includes(i.unit)?i.unit:'шт',sum:+i.sum||0})).filter(i=>i.name)}));
+      items:(Array.isArray(o.items)?o.items:[]).map(i=>({name:String(i.name||''),qty:+i.qty||0,unit:['шт','кг','уп'].includes(i.unit)?i.unit:'шт',sum:0})).filter(i=>i.name).map(withPrice)}));
     $('#impOut').innerHTML=parsed.length?parsed.map((o,k)=>`<label class="card" style="color:var(--fg);font-size:15px">
       <div class="row"><span><input type="checkbox" data-k="${k}" checked style="width:auto"> <b>${esc(o.name)}</b></span><span class="sum">${rub(total(o))}</span></div>
       <span class="muted">${fmtDay(o.date)}${o.address?' · '+esc(o.address):' · адрес не указан'}</span>
-      <ul class="items">${o.items.map(i=>`<li><span>${esc(i.name)}</span><span>${i.qty} ${esc(i.unit)}</span></li>`).join('')}</ul>
+      <ul class="items">${o.items.map(i=>`<li><span>${esc(i.name)}</span><span>${i.qty} ${esc(i.unit)}${i.price?'':' · нет цены'}</span></li>`).join('')}</ul>
       ${o.note?`<span class="muted">${esc(o.note)}</span>`:''}</label>`).join(''):'<div class="empty">Заказов в тексте не нашлось.</div>';
     $('#impSave').hidden=!parsed.length;
   }catch(err){
@@ -398,6 +475,12 @@ async function askClaude(prompt,imgs){
 // --- settings: API key and backup ---
 $('#set').onclick=()=>{$('#s-key').value=getKey();$('#s-url').value=ls('smokehouse-url',DEF_URL);$('#s-model').value=ls('smokehouse-model',DEF_MODEL);$('#s-msg').textContent='';$('#setDlg').showModal()};
 $('#setClose').onclick=()=>$('#setDlg').close();
+$('#c-text').value=catalogText();
+$('#c-save').onclick=()=>{
+  const text=$('#c-text').value.trim();
+  try{localStorage.setItem(CATALOG_KEY,text)}catch{}
+  catalog=parseCatalog(text);$('#s-msg').textContent='Каталог сохранён: '+catalog.length+' товаров. Цены применятся к новым заказам.';
+};
 $('#s-save').onclick=()=>{try{localStorage.setItem(APIKEY,$('#s-key').value.trim());localStorage.setItem('smokehouse-url',$('#s-url').value.trim()||DEF_URL);localStorage.setItem('smokehouse-model',$('#s-model').value.trim()||DEF_MODEL);$('#s-msg').textContent='Сохранено.'}catch{$('#s-msg').textContent='Не удалось сохранить ключ.'}};
 $('#s-export').onclick=()=>{
   const a=document.createElement('a');
@@ -436,7 +519,7 @@ async function unseal(str,login,pass){
 $('#h-make').onclick=async()=>{
   if(!getKey()){$('#s-msg').textContent='Сначала сохраните ключ API.';return}
   if($('#h-pass').value.length<8){$('#s-msg').textContent='Пароль должен быть не короче 8 символов.';$('#h-pass').focus();return}
-  const cfg={key:getKey(),url:ls('smokehouse-url',DEF_URL),model:ls('smokehouse-model',DEF_MODEL)};
+  const cfg={key:getKey(),url:ls('smokehouse-url',DEF_URL),model:ls('smokehouse-model',DEF_MODEL),catalog:catalogText()};
   const link=location.origin+location.pathname+'#cfg='+await seal(cfg,$('#h-login').value,$('#h-pass').value);
   $('#h-link').hidden=false;$('#h-link').value=link;$('#h-link').select();
   try{await navigator.clipboard.writeText(link);$('#s-msg').textContent='Ссылка скопирована. Пароль передайте отдельно.'}
@@ -450,6 +533,7 @@ if(cfgHash){
     try{
       const c=await unseal(cfgHash[1],$('#l-login').value,$('#l-pass').value);
       localStorage.setItem(APIKEY,c.key);localStorage.setItem('smokehouse-url',c.url||DEF_URL);localStorage.setItem('smokehouse-model',c.model||DEF_MODEL);
+      if(c.catalog){localStorage.setItem(CATALOG_KEY,c.catalog);catalog=parseCatalog(c.catalog);$('#c-text').value=c.catalog}
       history.replaceState(null,'',location.pathname);$('#loginDlg').close();
       $('#banner').hidden=false;$('#banner').textContent='Готово: настройки сохранены в этом телефоне. Добавьте страницу на главный экран.';
     }catch{$('#l-msg').textContent='Неверный логин или пароль.'}
