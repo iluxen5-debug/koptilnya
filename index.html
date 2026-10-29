@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Коптильня">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#eef0ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141917" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
 <title>Коптильня: заказы</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Russo+One&family=Rubik:wght@400;500;600&display=swap">
 <style>
@@ -21,7 +28,7 @@
   --bg:#141917; --card:#1e2522; --fg:#e8ece9; --muted:#9aa6a1; --line:#2f3834;
   --accent:#e0a050; --accent-fg:#1a1205; --ok:#6cc58f; --warn:#f08a7e; --chip:#28302d; color-scheme:dark}
 [hidden]{display:none!important}
-html,body{background:var(--bg);color:var(--fg)}
+html,body{background:var(--bg);color:var(--fg);-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
 body{font:15px/1.4 var(--body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 96px;max-width:640px;margin:0 auto;font-variant-numeric:tabular-nums}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
 header{position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);z-index:5;padding-block:12px 8px;display:grid;gap:10px}
@@ -133,6 +140,13 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
     <div class="muted">Заказы хранятся только в этом телефоне. Раз в неделю сохраняйте резервную копию, чтобы не потерять их при очистке браузера.</div>
     <button type="button" id="s-export">Скачать резервную копию</button>
     <label>Загрузить из копии<input id="s-import" type="file" accept=".json,application/json"></label>
+    <details><summary>Применить ссылку настроек</summary>
+      <div style="display:grid;gap:8px;margin-top:8px">
+        <div class="muted">Если приложение установлено на экран «Домой», вставьте сюда ссылку настроек, которую вам прислали.</div>
+        <input id="s-cfg" autocomplete="off" placeholder="https://…#cfg=…">
+        <button type="button" id="s-apply">Применить</button>
+      </div>
+    </details>
     <details><summary>Передать настройки клиенту</summary>
       <div style="display:grid;gap:8px;margin-top:8px">
         <div class="muted">Ключ, адрес API, модель и каталог упакуются в ссылку и зашифруются логином и паролем. Ссылку и пароль отправьте клиенту лично.</div>
@@ -605,21 +619,39 @@ $('#h-make').onclick=async()=>{
   try{await navigator.clipboard.writeText(link);$('#s-msg').textContent='Ссылка скопирована. Пароль передайте отдельно.'}
   catch{$('#s-msg').textContent='Скопируйте ссылку из поля выше. Пароль передайте отдельно.'}
 };
-const cfgHash=location.hash.match(/^#cfg=([\w-]+)$/);
-if(cfgHash){
+// The home-screen app on iPhone has its own storage, separate from Safari: a settings link must be applied inside it.
+// An icon added from the settings link keeps #cfg=…, so remember which code was applied and don't ask again.
+const APPLIED='smokehouse-cfg-applied';
+function openHandoff(code){
   $('#loginDlg').showModal();
   $('#loginForm').onsubmit=async e=>{
     e.preventDefault();$('#l-msg').textContent='Проверяю…';
     try{
-      const c=await unseal(cfgHash[1],$('#l-login').value,$('#l-pass').value);
+      const c=await unseal(code,$('#l-login').value,$('#l-pass').value);
       localStorage.setItem(APIKEY,c.key);localStorage.setItem('smokehouse-url',c.url||DEF_URL);localStorage.setItem('smokehouse-model',c.model||DEF_MODEL);
       if(c.form){localStorage.setItem(FORM,c.form);localStorage.setItem(SECRET,c.secret||'');syncForm()}
       if(c.catalog){localStorage.setItem(CATALOG_KEY,c.catalog);catalog=parseCatalog(c.catalog);render()}
-      history.replaceState(null,'',location.pathname);$('#loginDlg').close();
+      localStorage.setItem(APPLIED,code);
+      history.replaceState(null,'',location.pathname);$('#loginDlg').close();$('#setDlg').close();
       $('#banner').hidden=false;$('#banner').textContent='Готово: настройки сохранены в этом телефоне. Добавьте страницу на главный экран.';
     }catch{$('#l-msg').textContent='Неверный логин или пароль.'}
   };
 }
+const cfgHash=location.hash.match(/^#cfg=([\w-]+)$/);
+if(cfgHash){if(ls(APPLIED)===cfgHash[1])history.replaceState(null,'',location.pathname);else openHandoff(cfgHash[1])}
+$('#s-apply').onclick=()=>{
+  const m=$('#s-cfg').value.match(/#cfg=([\w-]+)/);
+  if(!m){$('#s-msg').textContent='Это не ссылка настроек. Она должна содержать «#cfg=».';return}
+  $('#s-cfg').value='';openHandoff(m[1]);
+};
+// One-time hint for iPhone Safari: how to install to the home screen
+(()=>{
+  const ios=/iP(hone|ad|od)/.test(navigator.userAgent)||navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1;
+  if(!ios||navigator.standalone||ls('smokehouse-hint')||cfgHash)return;
+  const b=$('#banner');b.hidden=false;
+  b.innerHTML='Установите как приложение: нажмите <b>Поделиться</b> внизу Safari → <b>На экран «Домой»</b>. Ключ и заказы потом настройте уже в приложении. <button type="button" id="hintOk" style="min-height:32px;padding:2px 10px;margin-left:6px">Понятно</button>';
+  $('#hintOk').onclick=()=>{b.hidden=true;try{localStorage.setItem('smokehouse-hint','1')}catch{}};
+})();
 // --- customer order form: requests land in a Google Sheet (apps-script/Code.gs), pulled in here ---
 const FORM='smokehouse-form', SECRET='smokehouse-form-secret';
 const formApi=()=>ls(FORM).trim().replace(/\?$/,'');
