@@ -320,7 +320,7 @@ function render(){
       const r=document.createElement('div');r.className='cat-row';
       r.innerHTML=`<input value="${esc(c.name)}" aria-label="Наименование" placeholder="Название">
         <select aria-label="Ед.изм.">${['кг','шт','уп'].map(u=>`<option${u===c.unit?' selected':''}>${u}</option>`).join('')}</select>
-        <input type="number" min="0" inputmode="numeric" value="${c.price===''?'':+c.price}" aria-label="Цена">
+        <input type="number" min="0" inputmode="numeric" value="${+c.price||''}" placeholder="цена" aria-label="Цена" onfocus="this.select()">
         <button type="button" aria-label="Удалить строку">✕</button>`;
       r.querySelector('button').onclick=()=>{r.remove();saveCat()};
       $('#c-rows').append(r);return r;
