@@ -115,7 +115,7 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
 <dialog id="loginDlg">
   <form id="loginForm">
     <b style="font:18px var(--display)">Вход</b>
-    <div class="muted">Введите логин и пароль, которые вам передали вместе со ссылкой.</div>
+    <div class="muted">Заказы хранятся в Google Таблице владельца. Введите логин и пароль от базы.</div>
     <label>Логин<input id="l-login" autocomplete="username"></label>
     <label>Пароль<input id="l-pass" type="password" autocomplete="current-password"></label>
     <button class="primary" type="submit">Войти</button>
@@ -129,11 +129,12 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
     <label>Ключ Anthropic API (для разбора заявок из чата)<input id="s-key" type="password" autocomplete="off" placeholder="sk-ant-…"></label>
     <label>Адрес API (менять, только если ключ куплен не у Anthropic)<input id="s-url" type="url" autocomplete="off" placeholder="https://api.anthropic.com"></label>
     <label>Модель<input id="s-model" autocomplete="off" placeholder="claude-sonnet-5-5"></label>
-    <details><summary>Форма заявки для клиентов</summary>
+    <details><summary>База и форма заявок</summary>
       <div style="display:grid;gap:8px;margin-top:8px">
-        <label>Адрес веб-приложения Google (…/exec)<input id="s-form" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></label>
-        <label>Секрет (тот же, что в скрипте)<input id="s-secret" type="password" autocomplete="off"></label>
-        <button type="button" id="s-formlink">Скопировать ссылку на форму</button>
+        <div class="muted" id="s-who"></div>
+        <label>Адрес базы (веб-приложение Google, …/exec)<input id="s-form" type="url" autocomplete="off"></label>
+        <button type="button" id="s-formlink">Скопировать ссылку на форму для клиентов</button>
+        <button type="button" id="s-logout">Выйти из базы на этом устройстве</button>
       </div>
     </details>
     <button class="primary" type="button" id="s-save">Сохранить</button>
@@ -419,8 +420,7 @@ $('#del').onclick=async()=>{
   if(!delArmed){delArmed=true;$('#del').textContent='Точно удалить?';setTimeout(()=>{delArmed=false;$('#del').textContent='Удалить'},3000);return}
   delArmed=false;$('#del').textContent='Удалить';
   const id=editing.id;$('#dlg').close();
-  orders=orders.filter(o=>o.id!==id);render();
-  persist();
+  removeOrder(id);
 };
 $('#form').onsubmit=async e=>{
   e.preventDefault();
@@ -432,7 +432,7 @@ $('#form').onsubmit=async e=>{
   $('#dlg').close();
   await save(editing?.id,o);
 };
-// shortcut: orders live only in this phone's browser; move to a server DB if a second device or person needs them
+// Local cache of the cloud base (see the cloud section below)
 const KEY='smokehouse-orders', APIKEY='smokehouse-apikey';
 function persist(){
   try{localStorage.setItem(KEY,JSON.stringify(orders));$('#sync').textContent='сохранено'}
@@ -441,8 +441,9 @@ function persist(){
 async function save(id,o){
   const nid=id||Date.now().toString(36)+Math.random().toString(36).slice(2,6);
   const k=orders.findIndex(x=>x.id===nid);  // update in place so cards don't jump while weighing
-  if(k<0)orders.push({...o,id:nid});else orders[k]={...o,id:nid};
-  render();persist();
+  const rec={...o,id:nid,updatedAt:Date.now()};
+  if(k<0)orders.push(rec);else orders[k]=rec;
+  render();persist();queuePut(rec);
 }
 
 $('#view').onchange=e=>{
@@ -460,7 +461,7 @@ $('#view').onclick=e=>{
   if(b.dataset.act==='del'){
     // two taps: the first arms the button for 3 s
     if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Точно?';b.style.flex='0 0 auto';b.style.color='var(--warn)';setTimeout(render,3000);return}
-    orders=orders.filter(x=>x.id!==id);render();persist();return;
+    removeOrder(id);return;
   }
   if(b.dataset.act==='done')save(id,{...d,status:'done',doneAt:Date.now()});
   if(b.dataset.act==='undo')save(id,{...d,status:'new',doneAt:null});
@@ -584,7 +585,8 @@ $('#s-import').onchange=async e=>{
   try{
     const data=JSON.parse(await f.text());if(!Array.isArray(data))throw 0;
     const ids=new Set(orders.map(o=>o.id));
-    orders=orders.concat(data.filter(o=>o&&o.id&&o.name&&!ids.has(o.id)));persist();render();
+    const add=data.filter(o=>o&&o.id&&o.name&&!ids.has(o.id));
+    orders=orders.concat(add);persist();render();add.forEach(o=>pending.put[o.id]=o);savePending();flush();
     $('#s-msg').textContent='Загружено. Всего заказов: '+orders.length+'.';
   }catch{$('#s-msg').textContent='Это не файл резервной копии.'}
   e.target.value='';
@@ -613,7 +615,7 @@ async function unseal(str,login,pass){
 $('#h-make').onclick=async()=>{
   if(!getKey()){$('#s-msg').textContent='Сначала сохраните ключ API.';return}
   if($('#h-pass').value.length<8){$('#s-msg').textContent='Пароль должен быть не короче 8 символов.';$('#h-pass').focus();return}
-  const cfg={key:getKey(),url:ls('smokehouse-url',DEF_URL),model:ls('smokehouse-model',DEF_MODEL),catalog:catalogText(),form:ls(FORM),secret:ls(SECRET)};
+  const cfg={key:getKey(),url:ls('smokehouse-url',DEF_URL),model:ls('smokehouse-model',DEF_MODEL),catalog:catalogText(),form:ls(FORM)};
   const link=location.origin+location.pathname+'#cfg='+await seal(cfg,$('#h-login').value,$('#h-pass').value);
   $('#h-link').hidden=false;$('#h-link').value=link;$('#h-link').select();
   try{await navigator.clipboard.writeText(link);$('#s-msg').textContent='Ссылка скопирована. Пароль передайте отдельно.'}
@@ -629,10 +631,11 @@ function openHandoff(code){
     try{
       const c=await unseal(code,$('#l-login').value,$('#l-pass').value);
       localStorage.setItem(APIKEY,c.key);localStorage.setItem('smokehouse-url',c.url||DEF_URL);localStorage.setItem('smokehouse-model',c.model||DEF_MODEL);
-      if(c.form){localStorage.setItem(FORM,c.form);localStorage.setItem(SECRET,c.secret||'');syncForm()}
+      if(c.form)localStorage.setItem(FORM,c.form);
       if(c.catalog){localStorage.setItem(CATALOG_KEY,c.catalog);catalog=parseCatalog(c.catalog);render()}
       localStorage.setItem(APPLIED,code);
       history.replaceState(null,'',location.pathname);$('#loginDlg').close();$('#setDlg').close();
+      if(!ls(TOKEN))setTimeout(()=>openLogin(),0);
       $('#banner').hidden=false;$('#banner').textContent='Готово: настройки сохранены в этом телефоне. Добавьте страницу на главный экран.';
     }catch{$('#l-msg').textContent='Неверный логин или пароль.'}
   };
@@ -652,48 +655,95 @@ $('#s-apply').onclick=()=>{
   b.innerHTML='Установите как приложение: нажмите <b>Поделиться</b> внизу Safari → <b>На экран «Домой»</b>. Ключ и заказы потом настройте уже в приложении. <button type="button" id="hintOk" style="min-height:32px;padding:2px 10px;margin-left:6px">Понятно</button>';
   $('#hintOk').onclick=()=>{b.hidden=true;try{localStorage.setItem('smokehouse-hint','1')}catch{}};
 })();
-// --- customer order form: requests land in a Google Sheet (apps-script/Code.gs), pulled in here ---
-const FORM='smokehouse-form', SECRET='smokehouse-form-secret';
-const formApi=()=>ls(FORM).trim().replace(/\?$/,'');
-$('#s-save').addEventListener('click',()=>{try{localStorage.setItem(FORM,$('#s-form').value.trim());localStorage.setItem(SECRET,$('#s-secret').value.trim())}catch{}pushCatalog();syncForm()});
-$('#set').addEventListener('click',()=>{$('#s-form').value=ls(FORM);$('#s-secret').value=ls(SECRET)});
+// --- cloud base: orders, catalog and settings live in the owner's Google Sheet (apps-script/Code.gs);
+// this browser keeps a cache plus a queue of unsent changes, so it works offline and syncs later ---
+const FORM='smokehouse-form', TOKEN='smokehouse-token', PENDING='smokehouse-pending';
+const DEF_API='https://script.google.com/macros/s/AKfycbzhVpH2neO-lqvkFJ-jFe_l6U0rB4V37Ace12qjMBkakP6VtG5z_2Gvz4xxPmQwG_NkVw/exec';
+const formApi=()=>(ls(FORM)||DEF_API).trim().replace(/\?$/,'');
+const post=body=>fetch(formApi(),{method:'POST',body:JSON.stringify({...body,token:ls(TOKEN)})}).then(r=>r.json());
+let pending=(()=>{try{return JSON.parse(localStorage.getItem(PENDING))||{put:{},del:[]}}catch{return{put:{},del:[]}}})();
+const savePending=()=>{try{localStorage.setItem(PENDING,JSON.stringify(pending))}catch{}};
+function queuePut(o){pending.put[o.id]=o;pending.del=pending.del.filter(x=>x!==o.id);savePending();flush()}
+function removeOrder(id){orders=orders.filter(o=>o.id!==id);render();persist();delete pending.put[id];pending.del.push(id);savePending();flush()}
+let flushing=null;
+function flush(){
+  if(!ls(TOKEN))return Promise.resolve();
+  return flushing||=(async()=>{
+    await null;  // let `flushing` be assigned before the finally below can clear it
+    try{
+      const puts=Object.values(pending.put),dels=[...pending.del];
+      if(puts.length){const r=await post({action:'put',orders:puts});if(r.ok)puts.forEach(o=>{if(pending.put[o.id]===o)delete pending.put[o.id]})}
+      if(dels.length){const r=await post({action:'del',ids:dels});if(r.ok)pending.del=pending.del.filter(x=>!dels.includes(x))}
+      if(ls(CAT_DIRTY))await pushCatalog();
+      savePending();
+      $('#sync').textContent=Object.keys(pending.put).length||pending.del.length?'не отправлено':'сохранено';
+    }catch{$('#sync').textContent='нет связи'}
+    finally{flushing=null}
+  })();
+}
+let syncing=false;
+async function syncState(){
+  if(!ls(TOKEN)||syncing)return;
+  syncing=true;
+  try{
+    await flush();
+    const r=await post({action:'state'});
+    if(r.error==='forbidden'){localStorage.removeItem(TOKEN);openLogin('Логин или пароль поменялись. Войдите заново.');return}
+    if(!r.ok)return;
+    // First login on a device that already has orders: upload them instead of losing them
+    if(!r.orders.length&&orders.length){orders.forEach(o=>pending.put[o.id]=o);savePending();await flush();return syncState()}
+    const before=new Set(orders.map(o=>o.id));
+    orders=r.orders.filter(o=>o&&o.id&&!pending.del.includes(o.id)).map(o=>pending.put[o.id]||o);
+    Object.values(pending.put).forEach(o=>{if(!orders.some(x=>x.id===o.id))orders.push(o)});
+    orders=orders.map(o=>o.status==='done'?o:{...o,items:(o.items||[]).map(i=>i.price?i:withPrice(i))});
+    if(r.catalog&&r.catalog!==catalogText()&&!ls(CAT_DIRTY)){try{localStorage.setItem(CATALOG_KEY,r.catalog)}catch{}catalog=parseCatalog(r.catalog)}
+    const st=r.settings||{};
+    try{if(st.key)localStorage.setItem(APIKEY,st.key);if(st.url)localStorage.setItem('smokehouse-url',st.url);if(st.model)localStorage.setItem('smokehouse-model',st.model)}catch{}
+    const fresh=orders.filter(o=>!before.has(o.id)&&o.from==='form').length;
+    if(fresh&&before.size){$('#banner').hidden=false;$('#banner').textContent='Новых заявок с формы: '+fresh+'.'}
+    persist();if(tab!=='catalog')render();
+  }catch{$('#sync').textContent='нет связи'}
+  finally{syncing=false}
+}
+function openLogin(msg){
+  $('#l-msg').textContent=msg||'';$('#l-login').value=$('#l-login').value||'admin';$('#loginDlg').showModal();
+  $('#loginForm').onsubmit=async e=>{
+    e.preventDefault();$('#l-msg').textContent='Проверяю…';
+    const token=$('#l-login').value.trim()+':'+$('#l-pass').value;
+    try{
+      const r=await (await fetch(formApi(),{method:'POST',body:JSON.stringify({action:'state',token})})).json();
+      if(!r.ok){$('#l-msg').textContent='Неверный логин или пароль.';return}
+      localStorage.setItem(TOKEN,token);$('#l-pass').value='';$('#loginDlg').close();syncState();
+    }catch{$('#l-msg').textContent='Нет связи с базой. Проверьте интернет.'}
+  };
+}
+// Catalog edits made offline stay "dirty" until the base accepts them, so a sync can't overwrite them
+const CAT_DIRTY='smokehouse-cat-dirty';
+function pushCatalog(){
+  try{localStorage.setItem(CAT_DIRTY,'1')}catch{}
+  if(!ls(TOKEN))return;
+  const say=t=>{const m=document.querySelector('#c-msg')||$('#s-msg');m.textContent=t};
+  return post({action:'catalog',catalog,text:catalogText()}).then(r=>{if(r.ok)localStorage.removeItem(CAT_DIRTY);return r}).then(r=>say(r.ok?'Каталог сохранён в базе и в форме клиентов: '+catalog.length+' товаров.':'База не приняла каталог. Войдите заново в ⚙.'))
+   .catch(()=>say('Каталог сохранён на телефоне, в базу уйдёт при следующем сохранении, когда будет связь.'));
+}
+$('#s-save').addEventListener('click',()=>{
+  try{const u=$('#s-form').value.trim();if(u&&u!==DEF_API)localStorage.setItem(FORM,u);else localStorage.removeItem(FORM)}catch{}
+  if(ls(TOKEN))post({action:'settings',settings:{key:getKey(),url:ls('smokehouse-url',DEF_URL),model:ls('smokehouse-model',DEF_MODEL)}}).catch(()=>{});
+  pushCatalog();
+});
+$('#set').addEventListener('click',()=>{$('#s-form').value=formApi();$('#s-who').textContent=ls(TOKEN)?'Вы вошли как '+ls(TOKEN).split(':')[0]+'.':'Вы не вошли.'});
+$('#s-logout').onclick=()=>{
+  if(Object.keys(pending.put).length||pending.del.length){$('#s-msg').textContent='Есть неотправленные изменения. Дождитесь связи, потом выходите.';return}
+  try{[TOKEN,KEY,APIKEY].forEach(k=>localStorage.removeItem(k))}catch{}
+  orders=[];render();$('#setDlg').close();openLogin();
+};
 $('#s-formlink').onclick=async()=>{
-  if(!formApi()){$('#s-msg').textContent='Сначала впишите адрес веб-приложения и нажмите «Сохранить».';return}
   const link=location.origin+location.pathname.replace(/[^/]*$/,'')+'order.html#'+encodeURIComponent(formApi());
   try{await navigator.clipboard.writeText(link);$('#s-msg').textContent='Ссылка скопирована: '+link}catch{$('#s-msg').textContent=link}
 };
-const post=body=>fetch(formApi(),{method:'POST',body:JSON.stringify({...body,token:ls(SECRET)})}).then(r=>r.json());
-function pushCatalog(){
-  if(!formApi()||!ls(SECRET))return;
-  const say=t=>{const m=document.querySelector('#c-msg')||$('#s-msg');m.textContent=t};
-  post({action:'catalog',catalog}).then(r=>say(r.ok?'Каталог отправлен в форму клиентов: '+catalog.length+' товаров.'
-    :r.error==='forbidden'?'Форма не приняла каталог: секрет не совпадает со скриптом. После правки скрипта сделайте «Развернуть → Управление развертываниями → новая версия».'
-    :'Форма не приняла каталог. Проверьте адрес веб-приложения в ⚙.'))
-   .catch(()=>say('Не удалось связаться с таблицей. Проверьте адрес веб-приложения (…/exec) и что доступ открыт для «Все».'));
-}
-let syncing=false;
-async function syncForm(){
-  if(!formApi()||!ls(SECRET)||syncing)return;
-  syncing=true;
-  try{
-    const list=await (await fetch(formApi()+(formApi().includes('?')?'&':'?')+'action=orders&token='+encodeURIComponent(ls(SECRET)))).json();
-    if(!Array.isArray(list))throw list;
-    const have=new Set(orders.map(o=>o.id)),fresh=list.filter(o=>o&&o.id&&!have.has(o.id));
-    for(const o of fresh){
-      const k=knownClient(o.name);
-      orders.push({id:String(o.id),name:String(o.name||''),phone:String(o.phone||k?.phone||''),address:String(o.address||k?.address||''),
-        date:/^\d{4}-\d\d-\d\d$/.test(o.date)?o.date:today(),note:String(o.note||''),raw:'',paid:false,status:'new',doneAt:null,createdAt:Date.now(),from:'form',
-        items:(Array.isArray(o.items)?o.items:[]).map(i=>withPrice({name:String(i.name||''),qty:+i.qty||0,unit:['кг','шт','уп'].includes(i.unit)?i.unit:'шт',sum:0}))});
-    }
-    if(fresh.length){persist();render();$('#banner').hidden=false;$('#banner').textContent='Новых заявок с формы: '+fresh.length+'.'}
-    // Mark everything we hold as taken, so the sheet stops returning them
-    if(list.length)await post({action:'taken',ids:list.map(o=>o.id)});
-  }catch(e){if(e?.error==='bad request'){$('#banner').hidden=false;$('#banner').textContent='Форма заявок: неверный секрет. Проверьте его в ⚙.'}}
-  finally{syncing=false}
-}
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncForm()});
-setInterval(()=>{if(!document.hidden)syncForm()},120000);
-setTimeout(syncForm,0);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncState()});
+setInterval(()=>{if(!document.hidden)syncState()},60000);
+if(ls(TOKEN))setTimeout(syncState,0);else if(!cfgHash)openLogin();
 navigator.storage?.persist?.();
 render();
 </script>
