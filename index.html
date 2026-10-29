@@ -86,6 +86,17 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
   <button class="primary" id="add" style="border-radius:99px;padding:14px 20px;box-shadow:0 6px 20px rgb(0 0 0/.25)">+ Заказ</button>
 </div>
 
+<dialog id="loginDlg">
+  <form id="loginForm">
+    <b style="font:18px var(--display)">Вход</b>
+    <div class="muted">Введите логин и пароль, которые вам передали вместе со ссылкой.</div>
+    <label>Логин<input id="l-login" autocomplete="username"></label>
+    <label>Пароль<input id="l-pass" type="password" autocomplete="current-password"></label>
+    <button class="primary" type="submit">Войти</button>
+    <div id="l-msg" class="muted" role="status"></div>
+  </form>
+</dialog>
+
 <dialog id="setDlg">
   <form method="dialog" onsubmit="return false">
     <div class="row"><b style="font:18px var(--display)">Настройки</b><button type="button" id="setClose" aria-label="Закрыть">✕</button></div>
@@ -96,6 +107,14 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
     <div class="muted">Заказы хранятся только в этом телефоне. Раз в неделю сохраняйте резервную копию, чтобы не потерять их при очистке браузера.</div>
     <button type="button" id="s-export">Скачать резервную копию</button>
     <label>Загрузить из копии<input id="s-import" type="file" accept=".json,application/json"></label>
+    <details><summary>Передать настройки клиенту</summary>
+      <div style="display:grid;gap:8px;margin-top:8px">
+        <div class="muted">Ключ, адрес API и модель упакуются в ссылку и зашифруются логином и паролем. Ссылку и пароль отправьте клиенту лично.</div>
+        <div class="two"><label>Логин<input id="h-login" value="admin" autocomplete="off"></label><label>Пароль<input id="h-pass" type="password" autocomplete="new-password"></label></div>
+        <button type="button" id="h-make">Сделать ссылку для клиента</button>
+        <textarea id="h-link" rows="3" readonly hidden></textarea>
+      </div>
+    </details>
     <div id="s-msg" class="muted" role="status"></div>
   </form>
 </dialog>
@@ -397,6 +416,45 @@ $('#s-import').onchange=async e=>{
 };
 
 try{orders=JSON.parse(localStorage.getItem(KEY)||'[]')}catch{orders=[]}
+// --- handoff: settings travel in the link's #fragment (never sent to a server), AES-GCM keyed by login+password ---
+const b64u={enc:b=>btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''),
+  dec:s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))};
+async function derive(login,pass,salt){
+  const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(login.trim()+'\n'+pass),'PBKDF2',false,['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:300000,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+}
+async function seal(obj,login,pass){
+  const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},await derive(login,pass,salt),new TextEncoder().encode(JSON.stringify(obj))));
+  return b64u.enc(new Uint8Array([...salt,...iv,...ct]));
+}
+async function unseal(str,login,pass){
+  const b=b64u.dec(str);
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b.slice(16,28)},await derive(login,pass,b.slice(0,16)),b.slice(28));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+$('#h-make').onclick=async()=>{
+  if(!getKey()){$('#s-msg').textContent='Сначала сохраните ключ API.';return}
+  if($('#h-pass').value.length<8){$('#s-msg').textContent='Пароль должен быть не короче 8 символов.';$('#h-pass').focus();return}
+  const cfg={key:getKey(),url:ls('smokehouse-url',DEF_URL),model:ls('smokehouse-model',DEF_MODEL)};
+  const link=location.origin+location.pathname+'#cfg='+await seal(cfg,$('#h-login').value,$('#h-pass').value);
+  $('#h-link').hidden=false;$('#h-link').value=link;$('#h-link').select();
+  try{await navigator.clipboard.writeText(link);$('#s-msg').textContent='Ссылка скопирована. Пароль передайте отдельно.'}
+  catch{$('#s-msg').textContent='Скопируйте ссылку из поля выше. Пароль передайте отдельно.'}
+};
+const cfgHash=location.hash.match(/^#cfg=([\w-]+)$/);
+if(cfgHash){
+  $('#loginDlg').showModal();
+  $('#loginForm').onsubmit=async e=>{
+    e.preventDefault();$('#l-msg').textContent='Проверяю…';
+    try{
+      const c=await unseal(cfgHash[1],$('#l-login').value,$('#l-pass').value);
+      localStorage.setItem(APIKEY,c.key);localStorage.setItem('smokehouse-url',c.url||DEF_URL);localStorage.setItem('smokehouse-model',c.model||DEF_MODEL);
+      history.replaceState(null,'',location.pathname);$('#loginDlg').close();
+      $('#banner').hidden=false;$('#banner').textContent='Готово: настройки сохранены в этом телефоне. Добавьте страницу на главный экран.';
+    }catch{$('#l-msg').textContent='Неверный логин или пароль.'}
+  };
+}
 navigator.storage?.persist?.();
 render();
 </script>
