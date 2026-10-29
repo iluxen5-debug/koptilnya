@@ -236,6 +236,8 @@ function itemSum(i){
   if(i.perKg)return +i.fact?+i.fact*i.price:i.unit==='кг'?(+i.qty||0)*i.price:0;
   return (+i.qty||0)*i.price;
 }
+// Actual weight is typed in grams, stored in kg (price is per kg)
+const kg=g=>(+String(g).replace(',','.')||0)/1000, grams=k=>Math.round(k*1000);
 const needsWeight=i=>i.perKg&&i.unit!=='кг'&&!+i.fact;
 const total=o=>(o.items||[]).reduce((a,i)=>a+itemSum(i),0);
 console.assert(itemSum({price:900,perKg:true,unit:'шт',qty:2})===0&&itemSum({price:900,perKg:true,unit:'шт',qty:2,fact:1.2})===1080&&itemSum({price:900,perKg:true,unit:'кг',qty:0.5})===450&&itemSum({price:350,perKg:false,unit:'шт',qty:6})===2100&&itemSum({price:0,sum:300})===300,'itemSum');
@@ -260,7 +262,7 @@ function card(o){
     <div class="row"><span class="name">${esc(o.name)}</span><span class="sum">${rub(t)}</span></div>
     ${o.address?`<a class="addr" href="${map}" target="_blank" rel="noopener">📍 ${esc(o.address)}</a>`:''}
     ${o.phone?`<span class="muted">☎ <span style="user-select:all">${esc(o.phone)}</span></span>`:''}
-    <ul class="items">${(o.items||[]).map(i=>`<li><span>${esc(i.name)}</span><span>${+i.qty||''} ${esc(i.unit)}${+i.fact?` → ${+i.fact} кг`:''}</span></li>`).join('')}</ul>
+    <ul class="items">${(o.items||[]).map(i=>`<li><span>${esc(i.name)}</span><span>${+i.qty||''} ${esc(i.unit)}${+i.fact?` → ${grams(i.fact)} г`:''}</span></li>`).join('')}</ul>
     ${(o.items||[]).some(needsWeight)?'<span class="chip">сумма уточнится после взвешивания</span>':''}
     ${o.note?`<span class="muted">${esc(o.note)}</span>`:''}
     <div class="row"><span class="chip ${o.paid?'paid':'unpaid'}">${o.paid?'оплачен':'не оплачен'}</span>${o.status==='done'?`<span class="chip">доставлен ${o.doneAt?new Date(o.doneAt).toLocaleDateString('ru-RU'):''}</span>`:''}</div>
@@ -291,7 +293,7 @@ function render(){
       ${weigh.length?`<div class="day">Взвесить · ${fmtDay(d)}</div><div class="list">${weigh.map(o=>`<div class="card">
         <div class="row"><span class="name">${esc(o.name)}</span><span class="sum">${rub(total(o))}</span></div>
         ${o.items.map((i,k)=>i.perKg?`<div class="weigh"><span>${esc(i.name)}<br><span class="muted">заказ ${+i.qty} ${esc(i.unit)} · ${i.price} ₽/кг</span></span>
-          <input type="number" step="0.001" min="0" inputmode="decimal" placeholder="факт, кг" value="${+i.fact||''}" data-oid="${o.id}" data-k="${k}" aria-label="Фактический вес, кг: ${esc(i.name)}">
+          <input type="number" step="1" min="0" inputmode="numeric" placeholder="факт, г" value="${+i.fact?grams(i.fact):''}" data-oid="${o.id}" data-k="${k}" aria-label="Фактический вес, граммы: ${esc(i.name)}">
           <b>${needsWeight(i)?'—':rub(itemSum(i))}</b></div>`:'').join('')}
       </div>`).join('')}</div>`:''}`}).join('');
   }else if(tab==='money'){
@@ -345,7 +347,7 @@ function itemRow(i={name:'',qty:1,unit:'',sum:''}){
   const d=document.createElement('div');d.className='item-row';d.dataset.unit=i.unit||'';
   d.innerHTML=`<input list="products" placeholder="Скумбрия" value="${esc(i.name)}" aria-label="Товар">
     <span class="qty"><input type="number" step="0.1" min="0" inputmode="decimal" value="${esc(i.qty)}" aria-label="Количество"><span class="u muted"></span></span>
-    <input type="number" step="0.001" min="0" inputmode="decimal" placeholder="факт, кг" value="${+i.fact||''}" aria-label="Фактический вес, кг">
+    <input type="number" step="1" min="0" inputmode="numeric" placeholder="факт, г" value="${+i.fact?grams(i.fact):''}" aria-label="Фактический вес, граммы">
     <input type="number" min="0" inputmode="numeric" placeholder="₽" value="${esc(i.sum)}" aria-label="Сумма">
     <button type="button" aria-label="Убрать товар">✕</button>`;
   d.querySelector('button').onclick=()=>{d.remove();calc()};
@@ -355,7 +357,7 @@ function itemRow(i={name:'',qty:1,unit:'',sum:''}){
 function rowItem(r){
   const [n,q,f,s]=r.querySelectorAll('input');
   const unit=r.dataset.unit||findProduct(n.value)?.unit||'шт';
-  return withPrice({name:n.value.trim(),qty:+q.value||0,unit,sum:+s.value||0,fact:+String(f.value).replace(',','.')||0});
+  return withPrice({name:n.value.trim(),qty:+q.value||0,unit,sum:+s.value||0,fact:kg(f.value)});
 }
 const readItems=()=>[...$('#items').children].map(rowItem).filter(i=>i.name);
 // Catalog products get their sum computed (read-only); unknown products keep a hand-typed sum
@@ -418,7 +420,7 @@ $('#view').onchange=e=>{
   const inp=e.target.closest('input[data-oid]');if(!inp)return;
   const o=orders.find(x=>x.id===inp.dataset.oid);if(!o)return;
   const {id,...d}=o;
-  d.items=o.items.map((i,k)=>k===+inp.dataset.k?{...i,fact:+String(inp.value).replace(',','.')||0}:i);
+  d.items=o.items.map((i,k)=>k===+inp.dataset.k?{...i,fact:kg(inp.value)}:i);
   save(id,d);
 };
 $('#view').onclick=e=>{
