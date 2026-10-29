@@ -61,7 +61,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 
 <script>
 const $=s=>document.querySelector(s);
-const api=decodeURIComponent(location.hash.slice(1));
+const api=decodeURIComponent(location.hash.slice(1)).trim().replace(/\?$/,'');
 const rub=n=>Math.round(n||0).toLocaleString('ru-RU')+' ₽';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let catalog=[];

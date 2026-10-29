@@ -622,7 +622,7 @@ if(cfgHash){
 }
 // --- customer order form: requests land in a Google Sheet (apps-script/Code.gs), pulled in here ---
 const FORM='smokehouse-form', SECRET='smokehouse-form-secret';
-const formApi=()=>ls(FORM).trim();
+const formApi=()=>ls(FORM).trim().replace(/\?$/,'');
 $('#s-save').addEventListener('click',()=>{try{localStorage.setItem(FORM,$('#s-form').value.trim());localStorage.setItem(SECRET,$('#s-secret').value.trim())}catch{}pushCatalog();syncForm()});
 $('#set').addEventListener('click',()=>{$('#s-form').value=ls(FORM);$('#s-secret').value=ls(SECRET)});
 $('#s-formlink').onclick=async()=>{
