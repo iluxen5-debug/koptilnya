@@ -61,7 +61,15 @@ dialog::backdrop{background:rgb(0 0 0/.45)}
 form{display:grid;gap:10px;padding:16px}
 label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
 input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 10px;width:100%;box-sizing:border-box;min-width:0}
-.item-row{display:grid;grid-template-columns:minmax(0,1fr) 64px 58px 84px 36px;gap:6px;align-items:center}
+.item-row{display:grid;grid-template-columns:minmax(0,1fr) 72px 76px 76px 36px;gap:6px;align-items:center}
+.item-row .qty{display:flex;align-items:center;gap:3px}
+.item-row .qty input{padding-inline:6px}
+.item-row .u{font-size:12px}
+.item-row .qty input{min-width:0}
+@media (max-width:520px){
+  .item-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 36px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .item-row>:first-child{grid-column:1/-1}
+}
 .item-row button{min-height:36px;padding:0}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .cat-row{display:grid;grid-template-columns:minmax(0,1fr) 64px 84px 36px;gap:6px;align-items:center}
@@ -158,7 +166,7 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
       <label>Дата доставки<input id="f-date" type="date" required></label>
       <label>Оплата<select id="f-paid"><option value="0">Не оплачен</option><option value="1">Оплачен</option></select></label>
     </div>
-    <div class="muted">Товары: название, количество, ед., сумма ₽</div>
+    <div class="muted">Товары: название, количество, факт. вес (для весовых), сумма ₽</div>
     <datalist id="products"></datalist>
     <div id="items" style="display:grid;gap:6px"></div>
     <button type="button" id="addItem">+ товар</button>
@@ -319,23 +327,30 @@ function render(){
 }
 
 // --- form ---
-function itemRow(i={name:'',qty:1,unit:'шт',sum:''}){
-  const d=document.createElement('div');d.className='item-row';d.dataset.fact=i.fact||'';
+// Unit is no longer edited: it comes from the chat parse, else from the catalog
+function itemRow(i={name:'',qty:1,unit:'',sum:''}){
+  const d=document.createElement('div');d.className='item-row';d.dataset.unit=i.unit||'';
   d.innerHTML=`<input list="products" placeholder="Скумбрия" value="${esc(i.name)}" aria-label="Товар">
-    <input type="number" step="0.1" min="0" inputmode="decimal" value="${esc(i.qty)}" aria-label="Количество">
-    <select aria-label="Единица">${['шт','кг','уп'].map(u=>`<option${u===i.unit?' selected':''}>${u}</option>`).join('')}</select>
+    <span class="qty"><input type="number" step="0.1" min="0" inputmode="decimal" value="${esc(i.qty)}" aria-label="Количество"><span class="u muted"></span></span>
+    <input type="number" step="0.001" min="0" inputmode="decimal" placeholder="факт, кг" value="${+i.fact||''}" aria-label="Фактический вес, кг">
     <input type="number" min="0" inputmode="numeric" placeholder="₽" value="${esc(i.sum)}" aria-label="Сумма">
     <button type="button" aria-label="Убрать товар">✕</button>`;
   d.querySelector('button').onclick=()=>{d.remove();calc()};
   d.oninput=calc;
   $('#items').append(d);calc();
 }
-const readItems=()=>[...$('#items').children].map(r=>{const [n,q,u,s]=r.querySelectorAll('input,select');
-  return withPrice({name:n.value.trim(),qty:+q.value||0,unit:u.value,sum:+s.value||0,fact:+r.dataset.fact||0})}).filter(i=>i.name);
+function rowItem(r){
+  const [n,q,f,s]=r.querySelectorAll('input');
+  const unit=r.dataset.unit||findProduct(n.value)?.unit||'шт';
+  return withPrice({name:n.value.trim(),qty:+q.value||0,unit,sum:+s.value||0,fact:+String(f.value).replace(',','.')||0});
+}
+const readItems=()=>[...$('#items').children].map(rowItem).filter(i=>i.name);
 // Catalog products get their sum computed (read-only); unknown products keep a hand-typed sum
 function calc(){
   for(const r of $('#items').children){
-    const [n,q,u,s]=r.querySelectorAll('input,select');const i=withPrice({name:n.value,qty:+q.value||0,unit:u.value,fact:+r.dataset.fact||0});
+    const [,,f,s]=r.querySelectorAll('input');const i=rowItem(r);
+    r.querySelector('.u').textContent=i.unit;
+    f.style.visibility=i.perKg?'visible':'hidden';
     s.readOnly=!!i.price;
     if(i.price){s.value=needsWeight(i)?'':Math.round(itemSum(i));s.placeholder=needsWeight(i)?'вес':'₽'}else s.placeholder='₽';
   }
