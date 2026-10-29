@@ -158,7 +158,7 @@ input,select,textarea{font:inherit;font-size:16px;color:var(--fg);background:var
     <label>Вставьте сообщение из чата (необязательно)
       <textarea id="f-raw" rows="2" placeholder="Скумбрия 2 шт, сало 0.5 кг, Ленина 5, кв 12"></textarea></label>
     <div class="two">
-      <label>Клиент<input id="f-name" required autocomplete="off"></label>
+      <label>Клиент<input id="f-name" required autocomplete="off" list="clients"></label><datalist id="clients"></datalist>
       <label>Телефон<input id="f-phone" type="tel" autocomplete="off"></label>
     </div>
     <label>Адрес<input id="f-addr" autocomplete="off"></label>
@@ -380,10 +380,17 @@ function openForm(o){
   $('#f-raw').value=o?.raw||'';$('#f-name').value=o?.name||'';$('#f-phone').value=o?.phone||'';
   $('#f-addr').value=o?.address||'';$('#f-date').value=o?.date||today();$('#f-paid').value=o?.paid?'1':'0';$('#f-note').value=o?.note||'';
   $('#items').innerHTML='';(o?.items?.length?o.items:[undefined]).forEach(i=>itemRow(i));
+  $('#clients').innerHTML=Object.keys(context().clients).map(n=>`<option value="${esc(n)}">`).join('');
   $('#products').innerHTML=[...new Set([...catalog.map(c=>c.name),...orders.flatMap(x=>(x.items||[]).map(i=>i.name))])].map(n=>`<option value="${esc(n)}">`).join('');
   $('#del').hidden=!o;calc();$('#dlg').showModal();
 }
 $('#add').onclick=()=>openForm();
+// Picking or typing a known client fills empty phone and address
+$('#f-name').onchange=()=>{
+  const k=knownClient($('#f-name').value);if(!k)return;
+  if(!$('#f-phone').value)$('#f-phone').value=k.phone;
+  if(!$('#f-addr').value)$('#f-addr').value=k.address;
+};
 $('#addItem').onclick=()=>itemRow();
 $('#close').onclick=()=>$('#dlg').close();
 let delArmed=false;
@@ -466,12 +473,15 @@ $('#imp').onclick=()=>{$('#impOut').innerHTML='';$('#impSave').hidden=true;$('#i
 $('#impClose').onclick=()=>$('#impDlg').close();
 // Known clients and last unit prices help fill addresses and sums the chat omits
 function context(){
-  const clients={},prices={};
-  for(const o of [...orders].sort((a,b)=>(a.createdAt||0)-(b.createdAt||0))){
-    if(o.name)clients[o.name]={address:o.address,phone:o.phone};
-    for(const i of o.items||[])if(i.qty&&i.sum)prices[i.name+' ('+i.unit+')']=Math.round(i.sum/i.qty);
-  }
-  return {clients,prices};
+  const clients={};
+  for(const o of [...orders].sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)))
+    if(o.name)clients[o.name]={address:o.address||clients[o.name]?.address||'',phone:o.phone||clients[o.name]?.phone||''};
+  return {clients};
+}
+// Latest known address/phone for a client name (case and ё-insensitive)
+function knownClient(name){
+  const c=context().clients,k=Object.keys(c).find(n=>norm(n)===norm(name));
+  return k?{name:k,...c[k]}:null;
 }
 $('#impForm').onsubmit=async e=>{
   e.preventDefault();
@@ -494,7 +504,8 @@ ${text||'(см. скриншоты)'}`;
     const r=await askClaude(prompt,imgs);
     parsed=(Array.isArray(r)?r:[]).filter(o=>o&&o.name).map(o=>({name:String(o.name),phone:String(o.phone||''),address:String(o.address||''),
       date:/^\d{4}-\d\d-\d\d$/.test(o.date)?o.date:today(),note:String(o.note||''),raw:String(o.raw||''),paid:false,status:'new',doneAt:null,
-      items:(Array.isArray(o.items)?o.items:[]).map(i=>({name:String(i.name||''),qty:+i.qty||0,unit:['шт','кг','уп'].includes(i.unit)?i.unit:'шт',sum:0})).filter(i=>i.name).map(withPrice)}));
+      items:(Array.isArray(o.items)?o.items:[]).map(i=>({name:String(i.name||''),qty:+i.qty||0,unit:['шт','кг','уп'].includes(i.unit)?i.unit:'шт',sum:0})).filter(i=>i.name).map(withPrice)}))
+      .map(o=>{const k=knownClient(o.name);return k?{...o,name:k.name,address:o.address||k.address,phone:o.phone||k.phone}:o});
     $('#impOut').innerHTML=parsed.length?parsed.map((o,k)=>`<label class="card" style="color:var(--fg);font-size:15px">
       <div class="row"><span><input type="checkbox" data-k="${k}" checked style="width:auto"> <b>${esc(o.name)}</b></span><span class="sum">${rub(total(o))}</span></div>
       <span class="muted">${fmtDay(o.date)}${o.address?' · '+esc(o.address):' · адрес не указан'}</span>
