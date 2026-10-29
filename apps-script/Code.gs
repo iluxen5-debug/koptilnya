@@ -1,7 +1,9 @@
 // Приём заявок с формы клиента в Google Таблицу.
 // 1) Замените SECRET на свою длинную фразу — ту же впишите в ⚙ на странице заказов.
 // 2) Развернуть → Новое развертывание → Веб-приложение, «У кого есть доступ»: Все.
-const SECRET = 'ЗАМЕНИТЕ_НА_СВОЙ_СЕКРЕТ';
+const SECRET = 'ЗАМЕНИТЕ_НА_СВОЙ_СЕКРЕТ';  // правьте только эту строку, не через «Заменить всё»
+// Until SECRET is changed, reading orders and changing the catalog stay closed
+const SECRET_SET = SECRET.length >= 8 && !/^ЗАМЕНИТЕ/.test(SECRET);
 
 const HEAD = ['id', 'Время', 'Имя', 'Телефон', 'Адрес', 'Дата доставки', 'Товары', 'Комментарий', 'json', 'Забрано'];
 const UNITS = ['кг', 'шт', 'уп'];
@@ -20,7 +22,7 @@ const cell = v => /^[=+\-@]/.test(v) ? "'" + v : v;
 function doGet(e) {
   const p = e.parameter;
   if (p.action === 'catalog') return out(JSON.parse(PropertiesService.getScriptProperties().getProperty('catalog') || '[]'));
-  if (p.action === 'orders' && SECRET !== 'ЗАМЕНИТЕ_НА_СВОЙ_СЕКРЕТ' && p.token === SECRET) {
+  if (p.action === 'orders' && SECRET_SET && p.token === SECRET) {
     const rows = sheet().getDataRange().getValues().slice(1).filter(r => r[0] && !r[9]);
     return out(rows.map(r => Object.assign({ id: String(r[0]) }, JSON.parse(r[8]))));
   }
@@ -47,7 +49,7 @@ function doPost(e) {
         cell(items.map(i => i.name + ' ' + i.qty + ' ' + i.unit).join(', ')), cell(o.note), JSON.stringify(o), '']);
       return out({ ok: true });
     }
-    if (SECRET === 'ЗАМЕНИТЕ_НА_СВОЙ_СЕКРЕТ' || d.token !== SECRET) return out({ error: 'forbidden' });
+    if (!SECRET_SET || d.token !== SECRET) return out({ error: 'forbidden' });
     if (d.action === 'catalog') {
       const cat = (Array.isArray(d.catalog) ? d.catalog : []).slice(0, 200)
         .map(c => ({ name: str(c.name, 80), price: +c.price || 0, unit: UNITS.includes(c.unit) ? c.unit : 'кг' })).filter(c => c.name);
