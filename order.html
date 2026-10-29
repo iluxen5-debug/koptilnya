@@ -28,7 +28,8 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .item{display:grid;grid-template-columns:minmax(0,1fr) 80px 72px 40px;gap:6px;align-items:center}
 .item button{padding:0;min-height:40px}
 .item .price{grid-column:1/-1;font-size:13px;color:var(--muted);margin-top:-2px}
-@media (max-width:420px){.item{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 40px}.item>:first-child{grid-column:1/-1}}
+@media (max-width:420px){.item{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 40px}.item>:first-child,.item>.free{grid-column:1/-1}}
+.item .free{grid-column:1/-1}
 .row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .err{color:var(--warn);font-size:14px}
 </style>
@@ -43,7 +44,6 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
   <label>Адрес доставки<input id="address" autocomplete="street-address"></label>
   <label>Когда привезти<input id="date" type="date"></label>
   <div class="muted">Что заказать</div>
-  <datalist id="products"></datalist>
   <div id="items" style="display:grid;gap:10px"></div>
   <button type="button" id="more">+ ещё товар</button>
   <div class="row"><span>Примерно</span><b id="total">0 ₽</b></div>
@@ -69,21 +69,26 @@ const find=n=>catalog.find(c=>c.name.toLowerCase()===String(n).trim().toLowerCas
 
 function itemRow(){
   const d=document.createElement('div');d.className='item';
-  d.innerHTML=`<input list="products" placeholder="Товар" aria-label="Товар">
-    <input type="number" min="0" step="0.1" inputmode="decimal" value="1" aria-label="Количество">
-    <select aria-label="Единица"><option>шт</option><option>кг</option></select>
+  // Catalog as a plain dropdown (datalist hints are hard to find on phones); «Другое» opens a text field
+  const pick=catalog.length?`<select aria-label="Товар" class="pick"><option value="">— выберите товар —</option>${catalog.map(c=>`<option>${esc(c.name)}</option>`).join('')}<option value="*">Другое…</option></select>`:'';
+  d.innerHTML=`${pick}<input placeholder="Товар" aria-label="Товар" class="free"${pick?' hidden':''}>
+    <input class="qty" type="number" min="0" step="0.1" inputmode="decimal" value="1" aria-label="Количество">
+    <select class="unit" aria-label="Единица"><option>шт</option><option>кг</option></select>
     <button type="button" aria-label="Убрать товар">✕</button>
     <div class="price"></div>`;
+  d.querySelector('.pick')?.addEventListener('change',e=>{const f=d.querySelector('.free');f.hidden=e.target.value!=='*';if(!f.hidden)f.focus()});
   d.querySelector('button').onclick=()=>{d.remove();if(!$('#items').children.length)itemRow();calc()};
   d.oninput=calc;$('#items').append(d);calc();
 }
+const nameOf=r=>{const p=r.querySelector('.pick');return (p&&p.value!=='*'?p.value:r.querySelector('.free').value).trim()};
+const qtyOf=r=>+String(r.querySelector('.qty').value).replace(',','.')||0;
 function readItems(){
-  return [...$('#items').children].map(r=>{const [n,q,u]=r.querySelectorAll('input,select');return{name:n.value.trim(),qty:+String(q.value).replace(',','.')||0,unit:u.value,r}}).filter(i=>i.name);
+  return [...$('#items').children].map(r=>({name:nameOf(r),qty:qtyOf(r),unit:r.querySelector('.unit').value})).filter(i=>i.name);
 }
 function calc(){
   let sum=0,weight=false;
   for(const r of $('#items').children){
-    const [n,q,u]=r.querySelectorAll('input,select'),c=find(n.value),qty=+String(q.value).replace(',','.')||0;
+    const u=r.querySelector('.unit'),c=find(nameOf(r)),qty=qtyOf(r);
     // Piece-priced products are sold only by the piece
     if(c&&c.unit!=='кг'){u.value='шт';u.disabled=true}else u.disabled=false;
     let t='';
@@ -118,7 +123,7 @@ $('#f').onsubmit=async e=>{
     if(!r.ok)throw new Error(r.error||'');
     try{localStorage.setItem('order-me',JSON.stringify(Object.fromEntries(KEEP.map(k=>[k,$('#'+k).value]))))}catch{}
     $('#f').hidden=true;$('#done').hidden=false;
-  }catch(err){$('#err').textContent=(err.message||'Не получилось отправить.')+' Проверьте интернет и попробуйте ещё раз.'}
+  }catch(err){$('#err').textContent=(err instanceof TypeError?'Сервер заявок не отвечает.':err.message||'Не получилось отправить.')+' Попробуйте ещё раз через минуту или напишите продавцу в чат.'}
   finally{$('#send').disabled=false;$('#send').textContent='Отправить заявку'}
 };
 $('#again').onclick=()=>{$('#items').innerHTML='';itemRow();$('#note').value='';$('#date').value='';$('#done').hidden=true;$('#f').hidden=false};
@@ -127,7 +132,8 @@ itemRow();
 if(api)fetch(api+(api.includes('?')?'&':'?')+'action=catalog').then(r=>r.json()).then(c=>{
   if(!Array.isArray(c))return;
   catalog=c.filter(x=>x&&x.name);
-  $('#products').innerHTML=catalog.map(x=>`<option value="${esc(x.name)}">`).join('');calc();
+  // Rebuild the starting row now that the dropdown has products
+  if(catalog.length&&readItems().length===0){$('#items').innerHTML='';itemRow()}
 }).catch(()=>{});
 </script>
 </body>

@@ -631,7 +631,14 @@ $('#s-formlink').onclick=async()=>{
   try{await navigator.clipboard.writeText(link);$('#s-msg').textContent='Ссылка скопирована: '+link}catch{$('#s-msg').textContent=link}
 };
 const post=body=>fetch(formApi(),{method:'POST',body:JSON.stringify({...body,token:ls(SECRET)})}).then(r=>r.json());
-function pushCatalog(){if(formApi()&&ls(SECRET))post({action:'catalog',catalog}).catch(()=>{})}
+function pushCatalog(){
+  if(!formApi()||!ls(SECRET))return;
+  const say=t=>{const m=document.querySelector('#c-msg')||$('#s-msg');m.textContent=t};
+  post({action:'catalog',catalog}).then(r=>say(r.ok?'Каталог отправлен в форму клиентов: '+catalog.length+' товаров.'
+    :r.error==='forbidden'?'Форма не приняла каталог: секрет не совпадает со скриптом. После правки скрипта сделайте «Развернуть → Управление развертываниями → новая версия».'
+    :'Форма не приняла каталог. Проверьте адрес веб-приложения в ⚙.'))
+   .catch(()=>say('Не удалось связаться с таблицей. Проверьте адрес веб-приложения (…/exec) и что доступ открыт для «Все».'));
+}
 let syncing=false;
 async function syncForm(){
   if(!formApi()||!ls(SECRET)||syncing)return;
