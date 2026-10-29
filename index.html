@@ -213,7 +213,18 @@ function parseCatalog(text){
 }
 const catalogText=()=>{try{return localStorage.getItem(CATALOG_KEY)??DEF_CATALOG}catch{return DEF_CATALOG}};
 let catalog=parseCatalog(catalogText());
-const findProduct=name=>catalog.find(c=>norm(c.name)===norm(name));
+// Loose match: every typed word must match a catalog word by its first 5 letters ("Терпуг" -> "Терпуг г/к");
+// on ties prefer the same first word, then the shortest name ("Горбуша" -> "Горбуша х/к без головы", not "Филе горбуши")
+const words=s=>norm(s).replace(/\b[гх]\/к\b/g,' ').split(/[^a-zа-я0-9]+/).filter(w=>w.length>1);
+const sameWord=(a,b)=>a.slice(0,5)===b.slice(0,5);
+function findProduct(name,list=catalog){
+  const exact=list.find(c=>norm(c.name)===norm(name));if(exact)return exact;
+  const w=words(name);if(!w.length)return;
+  return list.map(c=>({c,cw:words(c.name)})).filter(x=>w.every(t=>x.cw.some(u=>sameWord(t,u))))
+    .sort((x,y)=>(sameWord(y.cw[0]||'',w[0])-sameWord(x.cw[0]||'',w[0]))||x.cw.length-y.cw.length)[0]?.c;
+}
+{const L=parseCatalog(DEF_CATALOG),f=n=>findProduct(n,L)?.name;
+console.assert(f('Терпуг')==='Терпуг г/к'&&f('терпуг гк')===undefined&&f('Горбуша')==='Горбуша х/к без головы'&&f('филе горбуши')==='Филе горбуши х/к'&&f('Сало соленое')==='Сало солёное'&&f('Сало намазка')===undefined&&f('Куриный рулет')===undefined&&f('Курица')==='Курица'&&f('Колбаса')==='Колбаса свинина/говядина'&&f('Скумбрия')==='Скумбрия х/к','findProduct')}
 // Copy the current price onto the item, so later price changes don't rewrite old orders
 function withPrice(i){
   const c=findProduct(i.name);
@@ -538,6 +549,8 @@ $('#s-import').onchange=async e=>{
 };
 
 try{orders=JSON.parse(localStorage.getItem(KEY)||'[]')}catch{orders=[]}
+// Open orders saved before their product matched the catalog get priced now
+orders=orders.map(o=>o.status==='done'?o:{...o,items:(o.items||[]).map(i=>i.price?i:withPrice(i))});
 // --- handoff: settings travel in the link's #fragment (never sent to a server), AES-GCM keyed by login+password ---
 const b64u={enc:b=>btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''),
   dec:s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))};
