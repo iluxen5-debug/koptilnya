@@ -246,6 +246,7 @@ function card(o){
 
 function render(){
   document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tab===tab));
+  document.querySelector('div.fab').hidden=tab==='catalog';
   const open=orders.filter(o=>o.status!=='done').sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   const done=orders.filter(o=>o.status==='done').sort((a,b)=>(b.doneAt||0)-(a.doneAt||0));
   const v=$('#view');
