@@ -269,6 +269,7 @@ function card(o){
     <div class="actions">
       <button data-act="edit" data-id="${o.id}">Изменить</button>
       <button data-act="paid" data-id="${o.id}">${o.paid?'Снять оплату':'Оплачен'}</button>
+      <button data-act="del" data-id="${o.id}" aria-label="Удалить заказ" style="flex:0 0 44px">🗑</button>
       ${o.status==='done'?`<button data-act="undo" data-id="${o.id}">Вернуть</button>`:`<button class="primary" data-act="done" data-id="${o.id}">Доставлен ✓</button>`}
     </div></article>`;
 }
@@ -428,6 +429,11 @@ $('#view').onclick=e=>{
   const o=orders.find(x=>x.id===b.dataset.id);if(!o)return;
   const {id,...d}=o;
   if(b.dataset.act==='edit')return openForm(o);
+  if(b.dataset.act==='del'){
+    // two taps: the first arms the button for 3 s
+    if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Точно?';b.style.flex='0 0 auto';b.style.color='var(--warn)';setTimeout(render,3000);return}
+    orders=orders.filter(x=>x.id!==id);render();persist();return;
+  }
   if(b.dataset.act==='done')save(id,{...d,status:'done',doneAt:Date.now()});
   if(b.dataset.act==='undo')save(id,{...d,status:'new',doneAt:null});
   if(b.dataset.act==='paid')save(id,{...d,paid:!o.paid});
